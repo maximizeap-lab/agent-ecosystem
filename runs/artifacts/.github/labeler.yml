@@ -1,0 +1,55 @@
+## Auto-labeler configuration for actions/labeler
+
+"area: frontend":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/**/*
+          - public/**/*
+
+"area: ci-cd":
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/**/*
+          - Dockerfile
+          - docker-entrypoint.sh
+
+"area: helm":
+  - changed-files:
+      - any-glob-to-any-file:
+          - helm/**/*
+
+"area: tests":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/**/*.test.*
+          - src/**/*.spec.*
+          - e2e/**/*
+          - tests/**/*
+
+"area: config":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "*.config.*"
+          - "*.toml"
+          - "*.yaml"
+          - "*.yml"
+          - ".env*"
+
+"area: docs":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "*.md"
+          - docs/**/*
+
+"size: XS":
+  - changed-files:
+      - all-globs-to-all-files:
+          - "**/*"
+    max-files: 5
+
+"size: S":
+  - changed-files:
+      - all-globs-to-all-files:
+          - "**/*"
+    min-files: 6
+    max-files: 20

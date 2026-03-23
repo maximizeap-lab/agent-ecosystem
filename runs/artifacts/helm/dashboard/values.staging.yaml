@@ -1,0 +1,34 @@
+# Staging overrides
+replicaCount: 2
+
+image:
+  pullPolicy: Always
+
+ingress:
+  hosts:
+    - host: dashboard.staging.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: dashboard-staging-tls
+      hosts:
+        - dashboard.staging.example.com
+
+resources:
+  limits:
+    cpu: 300m
+    memory: 192Mi
+  requests:
+    cpu: 50m
+    memory: 96Mi
+
+autoscaling:
+  enabled: false
+
+env:
+  VITE_APP_VERSION: "staging"
+  VITE_FEATURE_FLAGS: "new-dashboard,beta-widgets"
+
+podAnnotations:
+  environment: staging

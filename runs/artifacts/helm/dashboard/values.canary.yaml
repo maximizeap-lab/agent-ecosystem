@@ -1,0 +1,14 @@
+# Canary overrides — merged on top of values.production.yaml
+replicaCount: 1
+
+canary:
+  enabled: true
+  weight: 10
+
+ingress:
+  annotations:
+    nginx.ingress.kubernetes.io/canary: "true"
+    nginx.ingress.kubernetes.io/canary-weight: "10"
+
+autoscaling:
+  enabled: false

@@ -1,0 +1,91 @@
+name: Release — Tag & Changelog
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump type"
+        required: true
+        type: choice
+        options: [patch, minor, major]
+      prerelease:
+        description: "Pre-release suffix (leave empty for stable)"
+        required: false
+        type: string
+
+jobs:
+  create-tag:
+    name: Bump Version & Create Tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Bump version in package.json
+        id: version
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          echo "Current version: $CURRENT"
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+
+          case "${{ inputs.bump }}" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+
+          if [ -n "${{ inputs.prerelease }}" ]; then
+            NEW_VERSION="$NEW_VERSION-${{ inputs.prerelease }}.1"
+          fi
+
+          echo "New version: $NEW_VERSION"
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$NEW_VERSION" >> "$GITHUB_OUTPUT"
+
+          npm version "$NEW_VERSION" --no-git-tag-version
+
+      - name: Generate CHANGELOG
+        uses: orhun/git-cliff-action@v3
+        with:
+          config: cliff.toml
+          args: --unreleased --tag ${{ steps.version.outputs.tag }}
+        env:
+          OUTPUT: CHANGELOG_NEW.md
+
+      - name: Prepend to CHANGELOG.md
+        run: |
+          cat CHANGELOG_NEW.md CHANGELOG.md > CHANGELOG_MERGED.md || cat CHANGELOG_NEW.md > CHANGELOG_MERGED.md
+          mv CHANGELOG_MERGED.md CHANGELOG.md
+
+      - name: Commit, tag & push
+        run: |
+          git add package.json CHANGELOG.md
+          git commit -m "chore(release): ${{ steps.version.outputs.tag }}"
+          git tag -a ${{ steps.version.outputs.tag }} -m "Release ${{ steps.version.outputs.tag }}"
+          git push origin main
+          git push origin ${{ steps.version.outputs.tag }}
+
+      - name: Summary
+        run: |
+          echo "## ✅ Release Created" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** ${{ steps.version.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered Production Deploy:** Yes (via tag push)" >> $GITHUB_STEP_SUMMARY

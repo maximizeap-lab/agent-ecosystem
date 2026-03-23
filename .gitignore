@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+runs/memory.db
+runs/*.json
+logs/
+*.log
+.DS_Store

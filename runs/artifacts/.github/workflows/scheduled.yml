@@ -1,0 +1,228 @@
+name: Scheduled Maintenance
+
+on:
+  schedule:
+    - cron: "0 2 * * 1"    # Weekly: Monday 02:00 UTC — dependency updates
+    - cron: "0 3 * * *"    # Nightly: 03:00 UTC — security scan
+    - cron: "0 4 1 * *"    # Monthly: 1st of month 04:00 UTC — full regression
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Which job to run"
+        required: true
+        type: choice
+        options:
+          - dependency-update
+          - security-scan
+          - full-regression
+
+env:
+  NODE_VERSION: "20"
+  PNPM_VERSION: "9"
+
+jobs:
+  # ─────────────────────────────────────────────
+  # NIGHTLY SECURITY SCAN
+  # ─────────────────────────────────────────────
+  security-scan:
+    name: Nightly Security Scan
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' && inputs.job == 'security-scan' ||
+      github.event.schedule == '0 3 * * *'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Snyk full scan
+        uses: snyk/actions/node@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --all-projects --json-file-output=snyk-results.json
+
+      - name: Run npm audit
+        run: |
+          pnpm audit --json > audit-results.json || true
+          cat audit-results.json
+
+      - name: Scan Docker image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/dashboard-app:latest
+          format: json
+          output: trivy-results.json
+          severity: CRITICAL,HIGH,MEDIUM
+
+      - name: Process and report vulnerabilities
+        run: |
+          echo "## 🔒 Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "### Snyk" >> $GITHUB_STEP_SUMMARY
+          cat snyk-results.json | jq -r '.vulnerabilities[] | "- **\(.severity)** \(.packageName)@\(.version): \(.title)"' >> $GITHUB_STEP_SUMMARY || echo "No Snyk results" >> $GITHUB_STEP_SUMMARY
+          echo "### Trivy (Docker)" >> $GITHUB_STEP_SUMMARY
+          cat trivy-results.json | jq -r '.Results[].Vulnerabilities[]? | "- **\(.Severity)** \(.PkgName)@\(.InstalledVersion): \(.Title)"' >> $GITHUB_STEP_SUMMARY || echo "No Trivy results" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload security artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-scan-${{ github.run_id }}
+          path: |
+            snyk-results.json
+            audit-results.json
+            trivy-results.json
+          retention-days: 30
+
+      - name: Open issue for critical vulnerabilities
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const trivyResults = JSON.parse(fs.readFileSync('trivy-results.json', 'utf8'));
+            const criticals = [];
+            for (const result of trivyResults.Results || []) {
+              for (const vuln of result.Vulnerabilities || []) {
+                if (vuln.Severity === 'CRITICAL') {
+                  criticals.push(`- ${vuln.PkgName}@${vuln.InstalledVersion}: ${vuln.Title} (${vuln.VulnerabilityID})`);
+                }
+              }
+            }
+            if (criticals.length > 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `🚨 Critical vulnerabilities found — ${new Date().toISOString().split('T')[0]}`,
+                body: `## Critical Vulnerabilities Detected\n\n${criticals.join('\n')}\n\n**Scan run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`,
+                labels: ['security', 'critical', 'automated']
+              });
+            }
+
+  # ─────────────────────────────────────────────
+  # WEEKLY DEPENDENCY UPDATES
+  # ─────────────────────────────────────────────
+  dependency-update:
+    name: Weekly Dependency Update
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' && inputs.job == 'dependency-update' ||
+      github.event.schedule == '0 2 * * 1'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+
+      - name: Update patch & minor dependencies
+        run: |
+          pnpm update --recursive --latest
+          pnpm install
+
+      - name: Run tests after update
+        run: |
+          pnpm test:unit --run
+          pnpm build
+        env:
+          VITE_API_BASE_URL: https://api.example.com
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(deps): weekly dependency update"
+          title: "chore(deps): Weekly Dependency Update"
+          body: |
+            ## Automated Dependency Update
+
+            This PR was automatically created by the weekly dependency update workflow.
+
+            ### Changes
+            - Updated patch and minor versions of all dependencies
+            - All unit tests passed ✅
+            - Build succeeded ✅
+
+            ### Review Notes
+            Please review the changelog for any breaking changes before merging.
+          branch: automated/deps-update-${{ github.run_id }}
+          labels: |
+            dependencies
+            automated
+          draft: false
+
+  # ─────────────────────────────────────────────
+  # MONTHLY FULL REGRESSION
+  # ─────────────────────────────────────────────
+  full-regression:
+    name: Monthly Full Regression Suite
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' && inputs.job == 'full-regression' ||
+      github.event.schedule == '0 4 1 * *'
+    strategy:
+      matrix:
+        browser: [chromium, firefox, webkit]
+        environment: [staging, production]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright
+        run: pnpm playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Run full E2E suite
+        run: |
+          pnpm test:e2e \
+            --project=${{ matrix.browser }} \
+            --reporter=html
+        env:
+          BASE_URL: >
+            ${{ matrix.environment == 'staging'
+              && 'https://dashboard.staging.example.com'
+              || 'https://dashboard.example.com' }}
+          CI: true
+
+      - name: Upload regression results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-${{ matrix.environment }}-${{ matrix.browser }}
+          path: playwright-report/
+          retention-days: 30

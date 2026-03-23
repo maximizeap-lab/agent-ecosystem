@@ -1,0 +1,39 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /Users/petergirgis/agent-ecosystem && python3 scripts/launch.py --status 2>&1 | head -8",
+            "statusMessage": "Running health check...",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$PWD\" = \"/Users/petergirgis/agent-ecosystem\" ] && cd /Users/petergirgis/agent-ecosystem && python3 scripts/launch.py --status 2>&1 | head -5 || true",
+            "statusMessage": "Running health check...",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /Users/petergirgis/agent-ecosystem && git status --porcelain CLAUDE.md agents/ utils/ web/ scripts/ monitor/ .claude/ 2>/dev/null | grep -q . && echo '{\"systemMessage\": \"REMINDER: Uncommitted changes in key project files — run: git add -A && git commit && git push\"}' || true",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

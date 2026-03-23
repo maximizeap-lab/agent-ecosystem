@@ -1,0 +1,10 @@
+anthropic
+openai
+python-dotenv
+httpx
+pydantic
+tenacity
+rich
+fastapi
+uvicorn
+duckduckgo-search

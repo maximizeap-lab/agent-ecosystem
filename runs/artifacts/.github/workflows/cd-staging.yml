@@ -1,0 +1,219 @@
+name: CD — Deploy to Staging
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Docker image tag to deploy (default: latest main SHA)"
+        required: false
+        type: string
+
+concurrency:
+  group: cd-staging
+  cancel-in-progress: false   # Never cancel an in-flight deployment
+
+env:
+  NODE_VERSION: "20"
+  PNPM_VERSION: "9"
+  IMAGE_NAME: dashboard-app
+  HELM_CHART: ./helm/dashboard
+  STAGING_NAMESPACE: dashboard-staging
+  DEPLOY_TIMEOUT: "10m"
+
+jobs:
+  # ─────────────────────────────────────────────
+  # 1. RESOLVE IMAGE TAG
+  # ─────────────────────────────────────────────
+  resolve-tag:
+    name: Resolve Image Tag
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.tag.outputs.value }}
+    steps:
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            echo "value=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=sha-$(echo ${{ github.sha }} | cut -c1-7)" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ─────────────────────────────────────────────
+  # 2. DEPLOY TO STAGING
+  # ─────────────────────────────────────────────
+  deploy-staging:
+    name: Helm Deploy → Staging
+    runs-on: ubuntu-latest
+    needs: resolve-tag
+    environment:
+      name: staging
+      url: https://dashboard.staging.example.com
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: "v3.14.0"
+
+      - name: Configure kubectl (staging)
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_STAGING }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Verify cluster connectivity
+        run: kubectl cluster-info
+
+      - name: Add Helm repos
+        run: |
+          helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+          helm repo add jetstack https://charts.jetstack.io
+          helm repo update
+
+      - name: Helm lint chart
+        run: |
+          helm lint ${{ env.HELM_CHART }} \
+            --values ${{ env.HELM_CHART }}/values.staging.yaml
+
+      - name: Helm diff (preview changes)
+        run: |
+          helm plugin install https://github.com/databus23/helm-diff --version v3.9.4 || true
+          helm diff upgrade dashboard ${{ env.HELM_CHART }} \
+            --namespace ${{ env.STAGING_NAMESPACE }} \
+            --values ${{ env.HELM_CHART }}/values.staging.yaml \
+            --set image.tag=${{ needs.resolve-tag.outputs.image_tag }} \
+            --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }} \
+            --set env.VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL_STAGING }} \
+            --set deployment.gitCommit=${{ github.sha }} \
+            --set deployment.buildTime=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+            --allow-unreleased
+
+      - name: Helm upgrade / install
+        run: |
+          helm upgrade --install dashboard ${{ env.HELM_CHART }} \
+            --namespace ${{ env.STAGING_NAMESPACE }} \
+            --create-namespace \
+            --values ${{ env.HELM_CHART }}/values.staging.yaml \
+            --set image.tag=${{ needs.resolve-tag.outputs.image_tag }} \
+            --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }} \
+            --set env.VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL_STAGING }} \
+            --set deployment.gitCommit=${{ github.sha }} \
+            --set deployment.buildTime=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+            --wait \
+            --timeout ${{ env.DEPLOY_TIMEOUT }} \
+            --atomic \
+            --cleanup-on-fail
+
+      - name: Verify rollout
+        run: |
+          kubectl rollout status deployment/dashboard \
+            --namespace ${{ env.STAGING_NAMESPACE }} \
+            --timeout=${{ env.DEPLOY_TIMEOUT }}
+
+      - name: Run smoke tests against staging
+        run: |
+          STAGING_URL="https://dashboard.staging.example.com"
+          echo "Running smoke tests against $STAGING_URL"
+          curl --fail --retry 5 --retry-delay 10 "$STAGING_URL/health"
+          curl --fail "$STAGING_URL/api/health"
+
+      - name: Run post-deploy E2E smoke suite
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Playwright & smoke suite
+        run: |
+          npm install -g pnpm@${{ env.PNPM_VERSION }}
+          pnpm install --frozen-lockfile
+          pnpm playwright install --with-deps chromium
+
+      - name: Execute smoke E2E
+        run: |
+          pnpm test:e2e:smoke \
+            --project=chromium
+        env:
+          BASE_URL: https://dashboard.staging.example.com
+          CI: true
+
+      - name: Upload smoke results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-smoke-results
+          path: playwright-report/
+
+  # ─────────────────────────────────────────────
+  # 3. ROLLBACK ON FAILURE
+  # ─────────────────────────────────────────────
+  rollback-staging:
+    name: Rollback Staging on Failure
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    if: failure()
+    steps:
+      - name: Configure kubectl (staging)
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_STAGING }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Helm rollback
+        run: |
+          helm rollback dashboard 0 \
+            --namespace ${{ env.STAGING_NAMESPACE }} \
+            --wait \
+            --timeout ${{ env.DEPLOY_TIMEOUT }}
+
+      - name: Notify rollback
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "⚠️ *Staging rollback triggered* for `dashboard-app`",
+              "attachments": [{
+                "color": "warning",
+                "fields": [
+                  { "title": "Branch", "value": "${{ github.ref_name }}", "short": true },
+                  { "title": "Commit", "value": "${{ github.sha }}", "short": true },
+                  { "title": "Run", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false }
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+  # ─────────────────────────────────────────────
+  # 4. NOTIFY SUCCESS
+  # ─────────────────────────────────────────────
+  notify-staging:
+    name: Notify Staging Deployment
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    if: success()
+    steps:
+      - name: Slack success notification
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "✅ *Staging deployed* — `dashboard-app` @ `${{ needs.resolve-tag.outputs.image_tag }}`",
+              "attachments": [{
+                "color": "good",
+                "fields": [
+                  { "title": "Environment", "value": "Staging", "short": true },
+                  { "title": "Branch", "value": "${{ github.ref_name }}", "short": true },
+                  { "title": "URL", "value": "https://dashboard.staging.example.com", "short": false },
+                  { "title": "Run", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false }
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

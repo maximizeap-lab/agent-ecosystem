@@ -1,0 +1,17 @@
+apiVersion: v2
+name: dashboard
+description: Dashboard Application Helm Chart
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+keywords:
+  - dashboard
+  - frontend
+  - spa
+
+maintainers:
+  - name: Platform Team
+    email: platform@example.com
+
+dependencies: []

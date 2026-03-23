@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "dashboard.fullname" . }}-env
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dashboard.labels" . | nindent 4 }}
+data:
+  VITE_API_BASE_URL: {{ .Values.env.VITE_API_BASE_URL | quote }}
+  VITE_APP_VERSION: {{ .Values.deployment.version | default .Values.env.VITE_APP_VERSION | quote }}
+  VITE_FEATURE_FLAGS: {{ .Values.env.VITE_FEATURE_FLAGS | quote }}
+  VITE_SENTRY_DSN: {{ .Values.env.VITE_SENTRY_DSN | quote }}
+  VITE_GA_TRACKING_ID: {{ .Values.env.VITE_GA_TRACKING_ID | quote }}

@@ -1,0 +1,310 @@
+name: CD — Deploy to Production
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"          # e.g. v1.4.2
+      - "v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+" # e.g. v1.4.2-rc.1
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Exact Docker image tag to deploy"
+        required: true
+        type: string
+      skip_canary:
+        description: "Skip canary phase and deploy directly"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: cd-production
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: dashboard-app
+  HELM_CHART: ./helm/dashboard
+  PROD_NAMESPACE: dashboard-prod
+  DEPLOY_TIMEOUT: "15m"
+
+jobs:
+  # ─────────────────────────────────────────────
+  # 1. RESOLVE TAG
+  # ─────────────────────────────────────────────
+  resolve-tag:
+    name: Resolve Image Tag
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.tag.outputs.value }}
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            echo "value=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+            echo "version=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            TAG="${{ github.ref_name }}"
+            echo "value=$TAG" >> "$GITHUB_OUTPUT"
+            echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ─────────────────────────────────────────────
+  # 2. CANARY DEPLOYMENT (10% traffic)
+  # ─────────────────────────────────────────────
+  deploy-canary:
+    name: Canary Deploy → Production (10%)
+    runs-on: ubuntu-latest
+    needs: resolve-tag
+    if: ${{ !inputs.skip_canary }}
+    environment:
+      name: production-canary
+      url: https://dashboard.example.com
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: "v3.14.0"
+
+      - name: Configure kubectl (production)
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PROD }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Canary Helm deploy
+        run: |
+          helm upgrade --install dashboard-canary ${{ env.HELM_CHART }} \
+            --namespace ${{ env.PROD_NAMESPACE }} \
+            --create-namespace \
+            --values ${{ env.HELM_CHART }}/values.production.yaml \
+            --values ${{ env.HELM_CHART }}/values.canary.yaml \
+            --set image.tag=${{ needs.resolve-tag.outputs.image_tag }} \
+            --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }} \
+            --set env.VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL_PROD }} \
+            --set canary.enabled=true \
+            --set canary.weight=10 \
+            --set replicaCount=2 \
+            --wait \
+            --timeout ${{ env.DEPLOY_TIMEOUT }} \
+            --atomic
+
+      - name: Monitor canary for 5 minutes
+        run: |
+          echo "Monitoring canary health for 5 minutes..."
+          for i in $(seq 1 10); do
+            sleep 30
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://dashboard.example.com/health)
+            echo "[$i/10] Health check status: $HTTP_STATUS"
+            if [ "$HTTP_STATUS" != "200" ]; then
+              echo "❌ Canary health check failed with status $HTTP_STATUS"
+              exit 1
+            fi
+          done
+          echo "✅ Canary is healthy"
+
+      - name: Check canary error rate
+        run: |
+          # Query Prometheus for error rate over the last 5 minutes
+          ERROR_RATE=$(curl -s \
+            "http://prometheus.monitoring.svc:9090/api/v1/query" \
+            --data-urlencode \
+            'query=sum(rate(http_requests_total{job="dashboard-canary",status=~"5.."}[5m])) / sum(rate(http_requests_total{job="dashboard-canary"}[5m])) * 100' \
+            | jq -r '.data.result[0].value[1] // "0"')
+          echo "Canary error rate: ${ERROR_RATE}%"
+          if (( $(echo "$ERROR_RATE > 1.0" | bc -l) )); then
+            echo "❌ Error rate $ERROR_RATE% exceeds threshold of 1%"
+            exit 1
+          fi
+          echo "✅ Error rate $ERROR_RATE% is within acceptable range"
+
+  # ─────────────────────────────────────────────
+  # 3. PRODUCTION GATE (Manual Approval)
+  # ─────────────────────────────────────────────
+  production-gate:
+    name: Manual Approval Gate
+    runs-on: ubuntu-latest
+    needs: [resolve-tag, deploy-canary]
+    if: always() && (needs.deploy-canary.result == 'success' || needs.deploy-canary.result == 'skipped')
+    environment:
+      name: production
+      url: https://dashboard.example.com
+    steps:
+      - name: Approval checkpoint
+        run: |
+          echo "✅ Approved for production deployment"
+          echo "Image tag: ${{ needs.resolve-tag.outputs.image_tag }}"
+          echo "Version:   ${{ needs.resolve-tag.outputs.version }}"
+
+  # ─────────────────────────────────────────────
+  # 4. FULL PRODUCTION DEPLOYMENT
+  # ─────────────────────────────────────────────
+  deploy-production:
+    name: Full Deploy → Production
+    runs-on: ubuntu-latest
+    needs: [resolve-tag, production-gate]
+    environment:
+      name: production
+      url: https://dashboard.example.com
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: "v3.14.0"
+
+      - name: Configure kubectl (production)
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PROD }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Helm upgrade production (blue/green)
+        run: |
+          helm upgrade --install dashboard ${{ env.HELM_CHART }} \
+            --namespace ${{ env.PROD_NAMESPACE }} \
+            --values ${{ env.HELM_CHART }}/values.production.yaml \
+            --set image.tag=${{ needs.resolve-tag.outputs.image_tag }} \
+            --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }} \
+            --set env.VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL_PROD }} \
+            --set canary.enabled=false \
+            --set deployment.version=${{ needs.resolve-tag.outputs.version }} \
+            --set deployment.gitCommit=${{ github.sha }} \
+            --set deployment.buildTime=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+            --wait \
+            --timeout ${{ env.DEPLOY_TIMEOUT }} \
+            --atomic \
+            --cleanup-on-fail
+
+      - name: Remove canary deployment
+        if: ${{ !inputs.skip_canary }}
+        run: |
+          helm uninstall dashboard-canary \
+            --namespace ${{ env.PROD_NAMESPACE }} \
+            --wait || echo "Canary already removed"
+
+      - name: Verify production rollout
+        run: |
+          kubectl rollout status deployment/dashboard \
+            --namespace ${{ env.PROD_NAMESPACE }} \
+            --timeout=${{ env.DEPLOY_TIMEOUT }}
+
+      - name: Run production smoke tests
+        run: |
+          PROD_URL="https://dashboard.example.com"
+          echo "Smoke testing $PROD_URL"
+          curl --fail --retry 5 --retry-delay 15 --retry-connrefused "$PROD_URL/health"
+          curl --fail "$PROD_URL/api/health"
+          curl --fail "$PROD_URL"
+
+  # ─────────────────────────────────────────────
+  # 5. CREATE GITHUB RELEASE
+  # ─────────────────────────────────────────────
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [resolve-tag, deploy-production]
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        uses: orhun/git-cliff-action@v3
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+        env:
+          OUTPUT: CHANGELOG.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Release ${{ needs.resolve-tag.outputs.version }}"
+          body: ${{ steps.changelog.outputs.content }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc.') }}
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─────────────────────────────────────────────
+  # 6. ROLLBACK ON FAILURE
+  # ─────────────────────────────────────────────
+  rollback-production:
+    name: Rollback Production on Failure
+    runs-on: ubuntu-latest
+    needs: deploy-production
+    if: failure()
+    steps:
+      - name: Configure kubectl (production)
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_PROD }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Helm rollback
+        run: |
+          helm rollback dashboard 0 \
+            --namespace ${{ env.PROD_NAMESPACE }} \
+            --wait \
+            --timeout ${{ env.DEPLOY_TIMEOUT }}
+
+      - name: Critical failure notification
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "🚨 *PRODUCTION ROLLBACK* — `dashboard-app` deployment failed!",
+              "attachments": [{
+                "color": "danger",
+                "fields": [
+                  { "title": "Version", "value": "${{ needs.resolve-tag.outputs.version }}", "short": true },
+                  { "title": "Tag", "value": "${{ needs.resolve-tag.outputs.image_tag }}", "short": true },
+                  { "title": "Action", "value": "Auto-rolled back to previous version", "short": false },
+                  { "title": "Run URL", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false }
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+  # ─────────────────────────────────────────────
+  # 7. NOTIFY SUCCESS
+  # ─────────────────────────────────────────────
+  notify-production:
+    name: Notify Production Deployment
+    runs-on: ubuntu-latest
+    needs: [resolve-tag, deploy-production]
+    if: success()
+    steps:
+      - name: Slack success notification
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "🚀 *Production deployed* — `dashboard-app` v`${{ needs.resolve-tag.outputs.version }}`",
+              "attachments": [{
+                "color": "good",
+                "fields": [
+                  { "title": "Environment", "value": "Production", "short": true },
+                  { "title": "Version", "value": "${{ needs.resolve-tag.outputs.version }}", "short": true },
+                  { "title": "URL", "value": "https://dashboard.example.com", "short": false },
+                  { "title": "Release", "value": "${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}", "short": false }
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
