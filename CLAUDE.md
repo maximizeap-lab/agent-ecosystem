@@ -22,6 +22,37 @@ When starting any session in this project, Claude MUST:
    ```
    The Stop hook will automatically surface this reminder if uncommitted changes exist.
 
+## How Claude Uses MAP HQ (MANDATORY — not optional)
+
+Claude must actively USE MAP HQ as an intelligent resource, not just maintain it.
+
+### RULE 1 — Compliance pre-check before implementing anything involving:
+- People, employees, contractors, hiring, firing, compensation
+- Contracts, agreements, NDAs, offer letters
+- Data collection, storage, user privacy, APIs that touch PII
+- Workplace policies, safety, benefits
+
+**Action:** Run `python3 scripts/launch.py --compliance "describe what is being built/changed"` BEFORE writing any code or making any decision. Do not proceed until review is complete.
+
+### RULE 2 — Route complex research goals through MAP HQ:
+When Peter asks a question requiring research across multiple angles (market analysis, technical comparison, strategy), run it through MAP HQ first:
+```bash
+python3 scripts/launch.py "your research goal here"
+```
+MAP HQ parallelises the work across specialist workers with web search, local LLMs, and specialist agents. Claude then builds on MAP HQ's output rather than working alone.
+
+### RULE 3 — Use MAP HQ for complex multi-step implementation goals:
+When a task has 3+ independent components (e.g. "build a billing system"), run the goal through MAP HQ to get Chloe's plan and worker outputs, then execute or refine from that foundation.
+
+### RULE 4 — Consult compliance specialists mid-task when needed:
+If Claude encounters a decision point involving legal, HR, payroll, data privacy, or safety mid-implementation, run a targeted compliance check rather than guessing.
+
+### WHEN Claude acts directly (no MAP HQ needed):
+- Single-file edits, bug fixes, refactors
+- Code review, reading files, answering questions
+- Git operations, running tests
+- Any task that is purely technical with no people/legal/data dimensions
+
 ## Who Keeps CLAUDE.md Updated
 
 **Claude is responsible for keeping this file current.**

@@ -5,9 +5,14 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd /Users/petergirgis/map-hq && python3 scripts/launch.py --status 2>&1 | head -8",
-            "statusMessage": "Running health check...",
+            "command": "cd /Users/petergirgis/agent-ecosystem && python3 scripts/launch.py --status 2>&1 | head -8",
+            "statusMessage": "MAP HQ health check...",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "echo '{\"systemMessage\": \"MAP HQ is active. RULES: (1) Run --compliance before implementing anything involving people/contracts/data/safety. (2) Route complex research goals through launch.py. (3) Use MAP HQ workers for multi-step tasks with 3+ components. (4) Consult hr_compliance/employment_law/payroll/data_privacy/workplace_safety specialists mid-task when needed.\"}'",
+            "timeout": 5
           }
         ]
       }
@@ -17,9 +22,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ \"$PWD\" = \"/Users/petergirgis/map-hq\" ] && cd /Users/petergirgis/map-hq && python3 scripts/launch.py --status 2>&1 | head -5 || true",
-            "statusMessage": "Running health check...",
-            "timeout": 30
+            "command": "cd /Users/petergirgis/agent-ecosystem && python3 -c \"\nimport sys, re\nprompt = open('/dev/stdin').read() if not sys.stdin.isatty() else ''\nkws = ['hire','fire','employ','contract','salary','pay','benefit','data','privacy','gdpr','ccpa','user data','personal','safety','injury','incident','nda','severance','equity','contractor','termina']\nif any(k in prompt.lower() for k in kws):\n    print('{\\\"systemMessage\\\": \\\"⚠️  COMPLIANCE TRIGGER DETECTED — run: python3 scripts/launch.py --compliance \\\\\\\"describe what you are doing\\\\\\\" BEFORE proceeding. MAP HQ rules require compliance pre-check for people/contract/data/safety decisions.\\\"}')\n\" 2>/dev/null || true",
+            "timeout": 5
           }
         ]
       }
@@ -29,17 +33,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cp /Users/petergirgis/map-hq/CLAUDE.md \"/Users/petergirgis/Desktop/claude md backup/CLAUDE_$(date +%Y%m%d_%H%M%S).md\" && echo '{\"systemMessage\": \"✅ CLAUDE.md backed up to Desktop/claude md backup\"}' || true",
+            "command": "cp /Users/petergirgis/agent-ecosystem/CLAUDE.md \"/Users/petergirgis/Desktop/claude md backup/CLAUDE_$(date +%Y%m%d_%H%M%S).md\" && echo '{\"systemMessage\": \"✅ CLAUDE.md backed up to Desktop/claude md backup\"}' || true",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "cd /Users/petergirgis/map-hq && git status --porcelain CLAUDE.md 2>/dev/null | grep -q . && echo '{\"systemMessage\": \"⚠️  CLAUDE.md has uncommitted changes — make sure it reflects all code changes made this session before committing.\"}' || true",
+            "command": "cd /Users/petergirgis/agent-ecosystem && git status --porcelain CLAUDE.md 2>/dev/null | grep -q . && echo '{\"systemMessage\": \"⚠️  CLAUDE.md has uncommitted changes — update it to reflect all code changes before committing.\"}' || true",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "cd /Users/petergirgis/map-hq && git status --porcelain agents/ utils/ web/ scripts/ monitor/ .claude/ 2>/dev/null | grep -q . && echo '{\"systemMessage\": \"REMINDER: Uncommitted code changes — run: git add -A && git commit && git push\"}' || true",
+            "command": "cd /Users/petergirgis/agent-ecosystem && git status --porcelain agents/ utils/ web/ scripts/ monitor/ .claude/ 2>/dev/null | grep -q . && echo '{\"systemMessage\": \"REMINDER: Uncommitted code changes — run: git add -A && git commit && git push\"}' || true",
             "timeout": 10
           }
         ]

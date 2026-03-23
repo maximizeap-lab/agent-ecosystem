@@ -127,11 +127,48 @@ def run_heal() -> None:
         logger.error(f"Synthesis failed during heal: {exc}")
 
 
+def run_compliance(description: str) -> None:
+    """Run only the HR & Legal compliance review — no workers, no synthesis."""
+    from agents.orchestrator import Chloe
+    from utils.bus import COMPLIANCE_TRIGGERS
+
+    console.print(Rule("[bold yellow]MAP HQ — Compliance Pre-Check[/bold yellow]"))
+    console.print()
+    console.print(Panel(description, title="[bold]Reviewing[/bold]", border_style="yellow", padding=(1, 2)))
+    console.print()
+
+    # Determine which agents will be triggered
+    scan = description.lower()
+    triggered = [k for k, kws in COMPLIANCE_TRIGGERS.items() if any(w in scan for w in kws)]
+    if "data_privacy" not in triggered:
+        triggered.append("data_privacy")
+
+    _LABELS = {
+        "hr_compliance":   "👥 HR Compliance Officer",
+        "employment_law":  "⚖️ Employment Law Attorney",
+        "payroll":         "💰 Payroll & Benefits Officer",
+        "data_privacy":    "🔒 Data Privacy & Security Officer",
+        "workplace_safety":"🦺 Workplace Safety Officer",
+    }
+    console.print(f"[dim]Routing to: {', '.join(_LABELS.get(k, k) for k in triggered)}[/dim]\n")
+
+    # Run a mock "review" with just the description as context
+    from agents.worker import WorkerResult
+    mock_result = WorkerResult(task=description, result=description, model_used="pre-check")
+    chloe = Chloe()
+    review = chloe._review(description, [mock_result])
+
+    console.print(Rule("[bold yellow]Compliance Review[/bold yellow]"))
+    console.print(Panel(review, border_style="yellow", padding=(1, 2)))
+    console.print()
+
+
 def main() -> None:
     if len(sys.argv) < 2:
         console.print("[red]Usage: python scripts/launch.py \"your goal here\"[/red]")
         console.print("[red]       python scripts/launch.py --status[/red]")
         console.print("[red]       python scripts/launch.py --heal[/red]")
+        console.print("[red]       python scripts/launch.py --compliance \"describe what you're doing\"[/red]")
         raise SystemExit(1)
 
     if sys.argv[1] == "--status":
@@ -140,6 +177,13 @@ def main() -> None:
 
     if sys.argv[1] == "--heal":
         run_heal()
+        return
+
+    if sys.argv[1] == "--compliance":
+        if len(sys.argv) < 3:
+            console.print("[red]Usage: python scripts/launch.py --compliance \"describe the action\"[/red]")
+            raise SystemExit(1)
+        run_compliance(sys.argv[2])
         return
 
     goal = sys.argv[1]
