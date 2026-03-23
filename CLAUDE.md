@@ -259,13 +259,13 @@ map-hq/
 8. **Goal-aware synthesis** — Aria receives the original goal in her system prompt for better output
 9. **Persistent specialist cache** — bus.py caches specialist answers in SQLite across sessions
 10. **Luna tool support** — OpenAI function-call format tools for Ollama models (write_file, read_file, web_search, run_code); phi3.5 and llama3.2 excluded as they don't support tool calls
-11. **Quality gate** — Chloe scans worker results for errors/thin output and flags them to Aria
+11. **Real quality evaluation** — `_evaluate_worker_output()` uses Haiku to assess borderline outputs (replaces the 50-char threshold); fast-path heuristics skip the API call for obvious pass/fail
 12. **Full cost visibility** — Aria (Sonnet) token usage tracked via stream(), included in run totals
 13. **Single Ollama health check** — `ollama_available()` called once per run in Chloe, passed to all workers (not per-worker)
 14. **Persistent classification cache** — task→category mapping stored in SQLite; survives process restarts (backed by lru_cache in-process)
 15. **Worker timeout** — hung workers (e.g. stalled Ollama) killed after 120s/worker; run continues with error result
 16. **Safe message handling** — `run_with_usage()` works on a copy of the messages list; caller's list never mutated
-17. **Worker result sharing** — failed/thin workers are retried with context from successful peers injected into their prompt
+17. **Worker result sharing** — failed/low-quality workers are retried with context from successful peers injected into their prompt
 18. **Feedback loop** — after synthesis, Chloe evaluates if goal was met; retries Aria with directive prompt if not
 19. **SSE synthesis streaming** — Aria's output streams chunk-by-chunk to web UI via `stream_callback`; Summary tab fills in real-time
 20. **Free health pings** — `models.list()` replaces `messages.create()` in all 3 health check locations (no tokens spent)
@@ -273,6 +273,10 @@ map-hq/
 22. **AST-based sandbox** — `run_code` uses `ast.parse()` to block dangerous imports/calls; prevents known string-matching bypasses
 23. **Path traversal protection** — `write_file` resolves path and rejects anything outside `runs/artifacts/`
 24. **39 unit tests** — `tests/` covers tools (safety, path traversal, execution), router, and memory
+25. **Compliance pre-check on plan** — before any workers start, `_review_plan()` runs compliance agents against the planned subtasks; 🚫 critical issues abort the run entirely before any work is done
+26. **Human-in-the-loop checkpoint** — after plan generation, `approval_callback` pauses execution and presents an editable plan in the web dashboard; user can accept, edit subtasks, or cancel (5-min timeout auto-approves)
+27. **Hierarchical sub-orchestrators** — `_is_complex_task()` detects multi-component tasks; `_dispatch_subtask()` spawns a child `Chloe` for those tasks (depth-limited to 1 level to prevent runaway recursion)
+28. **Auto-routing improvement** — `route_task()` checks `get_model_failure_count(model)` before sending to a local model; if 3+ recorded failures, falls back to Haiku automatically
 
 ## Security
 

@@ -27,6 +27,14 @@ specialist workers. Synthesise them into a single, well-structured, coherent res
 that directly addresses the original goal. Write in clear, professional prose.\
 """
 
+_COMPLIANCE_LABELS = {
+    "hr_compliance":   "👥 HR Compliance Officer",
+    "employment_law":  "⚖️ Employment Law Attorney",
+    "payroll":         "💰 Payroll & Benefits Officer",
+    "data_privacy":    "🔒 Data Privacy & Security Officer",
+    "workplace_safety":"🦺 Workplace Safety Officer",
+}
+
 
 class ChloeResult(BaseModel):
     goal: str
@@ -34,6 +42,7 @@ class ChloeResult(BaseModel):
     worker_results: list[WorkerResult]
     summary: str
     hr_legal_review: str = ""
+    plan_review: str = ""
     total_input_tokens: int = 0
     total_output_tokens: int = 0
     total_cost_usd: float = 0.0
@@ -43,14 +52,16 @@ class ChloeResult(BaseModel):
 class Chloe(Maya):
     """Decomposes a goal into subtasks, delegates to workers, and synthesises results."""
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, depth: int = 0, **kwargs) -> None:
         kwargs.setdefault("system_prompt", ORCHESTRATOR_SYSTEM_PROMPT)
         # Use Haiku for planning — only needs to output JSON, not quality prose
         kwargs.setdefault("model", "claude-haiku-4-5-20251001")
         super().__init__(**kwargs)
+        self._depth = depth
         self._aria_model = "claude-sonnet-4-6"
         self._aria_max_retries = self.max_retries
-        self.stream_callback = None  # set externally (e.g. web SSE) to receive Aria chunks in real-time
+        self.stream_callback = None   # set externally (e.g. web SSE) to receive Aria chunks in real-time
+        self.approval_callback = None  # set externally for human-in-the-loop plan approval
 
     # ------------------------------------------------------------------
     # Public API
@@ -64,12 +75,52 @@ class Chloe(Maya):
         subtasks = self._plan(goal)
         logger.orchestrator(f"Planned {len(subtasks)} subtask(s): {subtasks}")
 
+        # Improvement 1: compliance pre-check on PLAN before workers start
+        plan_review = ""
+        plan_blocked = False
+        try:
+            logger.orchestrator("Running compliance pre-check on plan…")
+            plan_review, plan_blocked = self._review_plan(goal, subtasks)
+            logger.orchestrator("Plan compliance pre-check complete.")
+        except Exception as exc:
+            logger.warning(f"Plan compliance pre-check skipped: {exc}")
+
+        if plan_blocked:
+            logger.warning("Plan blocked by compliance review — aborting execution.")
+            blocked_summary = (
+                f"⛔ This goal was blocked by the compliance pre-check before any work was done.\n\n"
+                f"**Compliance concerns with the plan:**\n\n{plan_review}\n\n"
+                f"Please revise your goal to address the flagged issues before proceeding."
+            )
+            return ChloeResult(
+                goal=goal,
+                subtasks=subtasks,
+                worker_results=[],
+                summary=blocked_summary,
+                plan_review=plan_review,
+                duration_seconds=round(time.time() - _started, 2),
+            )
+
+        # Improvement 2: human-in-the-loop plan approval checkpoint
+        if self.approval_callback:
+            try:
+                approved, revised_subtasks = self.approval_callback(goal, subtasks, plan_review)
+                if not approved:
+                    raise RuntimeError("Run cancelled by user at plan approval step.")
+                if revised_subtasks:
+                    subtasks = revised_subtasks
+                    logger.orchestrator(f"Plan revised by user — {len(subtasks)} subtask(s)")
+            except RuntimeError:
+                raise
+            except Exception as exc:
+                logger.warning(f"Approval callback failed ({exc}) — proceeding with original plan")
+
         worker_results = self._dispatch(subtasks)
 
-        # HR & Legal compliance review — runs concurrently, results injected into synthesis
+        # Post-execution HR & Legal review (on actual outputs)
         hr_legal_review = ""
         try:
-            logger.orchestrator("Running HR & Legal compliance review…")
+            logger.orchestrator("Running HR & Legal compliance review on outputs…")
             hr_legal_review = self._review(goal, worker_results)
             logger.orchestrator("HR & Legal review complete.")
         except Exception as exc:
@@ -78,7 +129,7 @@ class Chloe(Maya):
         summary = self._synthesise(goal, worker_results, review_notes=hr_legal_review)
         logger.orchestrator("Synthesis complete.")
 
-        # Fix 9: feedback loop — verify goal is met, retry synthesis once if not
+        # Feedback loop — verify goal is met, retry synthesis once if not
         if not self._evaluate(goal, summary):
             logger.orchestrator("Evaluation: goal not fully met — retrying synthesis with directive prompt…")
             summary = self._synthesise(goal, worker_results, review_notes=hr_legal_review, is_retry=True)
@@ -95,7 +146,7 @@ class Chloe(Maya):
         duration = round(time.time() - _started, 2)
         logger.orchestrator(f"Done in {duration}s — {total_in}in/{total_out}out tokens — est. ${total_cost:.5f}")
 
-        # Fix 7: cost spike alert — notify if run exceeds threshold
+        # Cost spike alert
         _COST_ALERT_USD = 0.10
         if total_cost > _COST_ALERT_USD:
             logger.warning(f"Cost alert: ${total_cost:.4f} exceeds ${_COST_ALERT_USD} threshold")
@@ -111,6 +162,7 @@ class Chloe(Maya):
             worker_results=worker_results,
             summary=summary,
             hr_legal_review=hr_legal_review,
+            plan_review=plan_review,
             total_input_tokens=total_in,
             total_output_tokens=total_out,
             total_cost_usd=total_cost,
@@ -138,7 +190,6 @@ class Chloe(Maya):
         raw = self.run(messages)
 
         try:
-            # Strip markdown fences if present (some models wrap JSON in ```json ... ```)
             cleaned = raw.strip()
             if cleaned.startswith("```"):
                 cleaned = cleaned.split("```")[1]
@@ -157,6 +208,56 @@ class Chloe(Maya):
 
         return subtasks
 
+    def _review_plan(self, goal: str, subtasks: list[str]) -> "tuple[str, bool]":
+        """Run compliance review on the PLAN before execution starts.
+        Returns (review_text, is_blocked).
+        is_blocked=True only when a 🚫 critical issue is found — stops execution."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from utils.bus import bus, COMPLIANCE_TRIGGERS
+
+        plan_text = f"Goal: {goal}\n\nPlanned subtasks:\n" + "\n".join(f"- {t}" for t in subtasks)
+        scan_text = (goal + " " + " ".join(subtasks)).lower()
+
+        triggered = [
+            key for key, keywords in COMPLIANCE_TRIGGERS.items()
+            if any(kw in scan_text for kw in keywords)
+        ]
+        if "data_privacy" not in triggered:
+            triggered.append("data_privacy")
+
+        _REVIEW_PROMPT = (
+            "Review the following PLAN (not yet executed). Flag any compliance issues with the "
+            "intended approach BEFORE the work begins. If the plan itself is fundamentally "
+            "problematic (illegal, discriminatory, a serious privacy violation), use 🚫 to block it. "
+            "For concerns that can proceed with caution, use ⚠️. For clean plans, use ✅.\n\n{summary}"
+        )
+
+        logger.orchestrator(f"Plan compliance routing → {', '.join(_COMPLIANCE_LABELS.get(k, k) for k in triggered)}")
+
+        results: dict[str, str] = {}
+        with ThreadPoolExecutor(max_workers=len(triggered)) as pool:
+            futures = {
+                pool.submit(bus.ask, _REVIEW_PROMPT.format(summary=plan_text), key): key
+                for key in triggered
+            }
+            for future in as_completed(futures, timeout=60):
+                key = futures[future]
+                try:
+                    results[key] = future.result()
+                except Exception as exc:
+                    results[key] = f"Review unavailable: {exc}"
+
+        order = ["hr_compliance", "employment_law", "payroll", "data_privacy", "workplace_safety"]
+        parts = []
+        is_blocked = False
+        for key in order:
+            if key in results:
+                parts.append(f"**{_COMPLIANCE_LABELS[key]}:**\n{results[key]}")
+                if "🚫" in results[key]:
+                    is_blocked = True
+
+        return "\n\n---\n\n".join(parts), is_blocked
+
     def _dispatch(self, subtasks: list[str]) -> list[WorkerResult]:
         """Spawn workers in parallel and collect results in original order."""
         from utils.router import route_task, ollama_available
@@ -165,10 +266,9 @@ class Chloe(Maya):
         logger.orchestrator(f"Dispatching {total} workers in parallel…")
         results: list[WorkerResult | None] = [None] * total
 
-        # Fix 1: check Ollama once for all workers instead of once per worker
         ollama_up = ollama_available()
 
-        # Fix 2: dynamic worker count — local tasks don't consume Anthropic rate limits
+        # Dynamic worker count — local tasks don't consume Anthropic rate limits
         routes = [route_task(task) for task in subtasks]
         api_count   = sum(1 for p, _ in routes if p != "local" or not ollama_up)
         local_count = total - api_count
@@ -177,9 +277,8 @@ class Chloe(Maya):
         logger.orchestrator(f"Workers: {local_count} local (max 5) + {api_count} API (max 2) → pool={max_w}")
 
         def _run(index: int, task: str) -> tuple[int, WorkerResult]:
-            worker = Nova(max_retries=self.max_retries, ollama_up=ollama_up)
             try:
-                return index, worker.execute(task)
+                return index, self._dispatch_subtask(task, ollama_up)
             except Exception as exc:
                 logger.error(f"Worker failed for task '{task[:60]}': {exc}")
                 from utils.memory import record_model_failure
@@ -189,7 +288,6 @@ class Chloe(Maya):
         with ThreadPoolExecutor(max_workers=max_w) as pool:
             futures = {pool.submit(_run, i, task): i for i, task in enumerate(subtasks)}
             completed = 0
-            # Fix 5: timeout so a hung worker (e.g. stalled Ollama) never blocks forever
             try:
                 for future in as_completed(futures, timeout=120 * total):
                     index, result = future.result()
@@ -206,12 +304,12 @@ class Chloe(Maya):
 
         final = [r for r in results if r is not None]
 
-        # Fix 5: retry failed/thin workers with context from successful peers
-        successful = [r for r in final if not r.result.startswith("[ERROR:") and len(r.result.strip()) >= 50]
-        needs_retry = [(i, r) for i, r in enumerate(final) if r.result.startswith("[ERROR:") or len(r.result.strip()) < 50]
+        # Improvement 4: real quality evaluation — retry failed/low-quality workers
+        successful = [r for r in final if self._evaluate_worker_output(r.task, r.result)]
+        needs_retry = [(i, r) for i, r in enumerate(final) if not self._evaluate_worker_output(r.task, r.result)]
         if needs_retry and successful:
             context_block = "\n\n".join(f"[{r.task[:80]}]:\n{r.result[:600]}" for r in successful)
-            logger.orchestrator(f"Retrying {len(needs_retry)} failed worker(s) with peer context…")
+            logger.orchestrator(f"Retrying {len(needs_retry)} low-quality worker(s) with peer context…")
             for idx, failed_r in needs_retry:
                 enriched = f"{failed_r.task}\n\n[Context from completed tasks — use if relevant]\n{context_block}"
                 worker = Nova(max_retries=1, ollama_up=ollama_up)
@@ -223,41 +321,90 @@ class Chloe(Maya):
 
         return final
 
+    def _dispatch_subtask(self, task: str, ollama_up: bool) -> WorkerResult:
+        """Execute a single subtask — as a Nova worker or a sub-orchestrator for complex tasks.
+        Improvement 3: hierarchical sub-orchestrators (depth-limited to 1)."""
+        if self._is_complex_task(task):
+            logger.orchestrator(f"Spawning sub-orchestrator for: {task[:60]}…")
+            try:
+                sub = Chloe(depth=self._depth + 1, max_retries=1)
+                sub_result = sub.execute(task)
+                return WorkerResult(
+                    task=task,
+                    result=sub_result.summary,
+                    model_used="sub-orchestrator",
+                    input_tokens=sub_result.total_input_tokens,
+                    output_tokens=sub_result.total_output_tokens,
+                    cost_usd=sub_result.total_cost_usd,
+                )
+            except Exception as exc:
+                logger.error(f"Sub-orchestrator failed ({exc}) — falling back to Nova")
+
+        worker = Nova(max_retries=self.max_retries, ollama_up=ollama_up)
+        return worker.execute(task)
+
+    def _is_complex_task(self, task: str) -> bool:
+        """Detect tasks complex enough to warrant a sub-orchestrator.
+        Never recurses beyond depth 1 to prevent runaway nesting."""
+        if self._depth >= 1:
+            return False
+        complexity_signals = [" and ", " then ", "first ", "also ", "as well as",
+                               "multiple", "several", "full ", "complete system", "end-to-end"]
+        task_lower = task.lower()
+        signal_count = sum(1 for s in complexity_signals if s in task_lower)
+        return signal_count >= 2 and len(task) > 80
+
+    def _evaluate_worker_output(self, task: str, result: str) -> bool:
+        """Improvement 4: real quality evaluation via Haiku, replacing the 50-char threshold.
+        Fast-path heuristics skip the API call for obvious pass/fail cases."""
+        # Fast path: obvious failures
+        if result.startswith("[ERROR:"):
+            return False
+        # Fast path: refusal/limitation patterns
+        refusal_phrases = ["i cannot", "i'm not able", "i don't have access", "as an ai",
+                           "i am not able", "unable to", "i apologize, but i cannot"]
+        if any(p in result.lower()[:200] for p in refusal_phrases):
+            return False
+        # Fast path: clearly good output (>200 chars with real content)
+        if len(result.strip()) >= 200:
+            return True
+        # Borderline (1-199 chars): ask Haiku
+        if len(result.strip()) < 10:
+            return False
+        prompt = (
+            f"Task: {task}\n\nOutput: {result}\n\n"
+            "Does this output meaningfully address the task? Reply YES or NO only."
+        )
+        try:
+            answer = self.run([{"role": "user", "content": prompt}])
+            return answer.strip().upper().startswith("YES")
+        except Exception:
+            return len(result.strip()) >= 50  # fallback to old heuristic
+
     def _review(self, goal: str, worker_results: list[WorkerResult]) -> str:
-        """Route to the relevant compliance agents based on goal content.
-        Only agents triggered by keywords are invoked — all run concurrently.
-        Results cached in SQLite so identical goals never re-call the API."""
+        """Post-execution compliance review on actual worker outputs.
+        Route to relevant agents; results cached in SQLite."""
         from concurrent.futures import ThreadPoolExecutor, as_completed
         from utils.bus import bus, COMPLIANCE_TRIGGERS
 
-        # Summarise work for review (lean for Haiku)
         work_summary = f"Goal: {goal}\n\n" + "\n\n".join(
             f"Task: {r.task}\nOutput: {r.result[:400]}" for r in worker_results[:6]
         )
         scan_text = (goal + " " + " ".join(r.task for r in worker_results)).lower()
 
-        # Intelligent routing — only invoke agents triggered by content
         triggered = [
             key for key, keywords in COMPLIANCE_TRIGGERS.items()
             if any(kw in scan_text for kw in keywords)
         ]
-        # data_privacy is always relevant for any digital work
         if "data_privacy" not in triggered:
             triggered.append("data_privacy")
 
-        _LABELS = {
-            "hr_compliance":   "👥 HR Compliance Officer",
-            "employment_law":  "⚖️ Employment Law Attorney",
-            "payroll":         "💰 Payroll & Benefits Officer",
-            "data_privacy":    "🔒 Data Privacy & Security Officer",
-            "workplace_safety":"🦺 Workplace Safety Officer",
-        }
         _REVIEW_PROMPT = (
             "Review the following work and outputs. Run your full checklist. "
             "Use your output format (✅/⚠️/🚫 + statute cite + next steps).\n\n{summary}"
         )
 
-        logger.orchestrator(f"Compliance routing → {', '.join(_LABELS.get(k, k) for k in triggered)}")
+        logger.orchestrator(f"Compliance routing → {', '.join(_COMPLIANCE_LABELS.get(k, k) for k in triggered)}")
 
         results: dict[str, str] = {}
         with ThreadPoolExecutor(max_workers=len(triggered)) as pool:
@@ -272,12 +419,11 @@ class Chloe(Maya):
                 except Exception as exc:
                     results[key] = f"Review unavailable: {exc}"
 
-        # Preserve a consistent agent order
         order = ["hr_compliance", "employment_law", "payroll", "data_privacy", "workplace_safety"]
         parts = []
         for key in order:
             if key in results:
-                parts.append(f"**{_LABELS[key]}:**\n{results[key]}")
+                parts.append(f"**{_COMPLIANCE_LABELS[key]}:**\n{results[key]}")
 
         return "\n\n---\n\n".join(parts)
 
@@ -297,13 +443,11 @@ class Chloe(Maya):
     def _synthesise(self, goal: str, worker_results: list[WorkerResult],
                     review_notes: str = "", is_retry: bool = False) -> str:
         """Combine all worker outputs into a streamed final summary."""
-        MAX_CHARS = 6000  # was 2000 — rich outputs (code, analysis) no longer truncated
+        MAX_CHARS = 6000
         findings_parts = []
         failed_tasks = []
         for r in worker_results:
-            is_error = r.result.startswith("[ERROR:")
-            is_thin = len(r.result.strip()) < 50
-            if is_error or is_thin:
+            if not self._evaluate_worker_output(r.task, r.result):
                 failed_tasks.append(r.task)
                 findings_parts.append(f"### Subtask: {r.task}\n⚠️ UNRELIABLE — {r.result[:200]}")
             else:
@@ -322,7 +466,6 @@ class Chloe(Maya):
             f"{compliance_section}\n\n"
             "Please synthesise the above into a final, cohesive response."
         )
-        # Build Aria with goal-aware system prompt for better synthesis quality
         retry_note = (
             "\n\nIMPORTANT: A previous synthesis attempt did not fully address the goal. "
             "This is your second attempt — be more thorough, specific, and directly answer every aspect of the goal."
@@ -340,7 +483,6 @@ class Chloe(Maya):
         )
         messages = [{"role": "user", "content": prompt}]
         logger.orchestrator("Streaming synthesis…")
-        # Fix 4: pass stream_callback so web UI receives Aria chunks in real-time
         text, aria_in, aria_out = aria.stream(messages, stream_callback=self.stream_callback)
         aria_cost = estimate_cost(self._aria_model, aria_in, aria_out)
         logger.orchestrator(f"Aria tokens: {aria_in}in/{aria_out}out — ${aria_cost:.5f}")

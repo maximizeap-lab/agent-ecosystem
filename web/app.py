@@ -32,6 +32,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 import secrets
+from typing import Optional
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -59,11 +60,19 @@ def _require_auth(credentials: HTTPBasicCredentials = Depends(_security)):
 _run_queues: "dict[str, queue.Queue]" = {}
 _run_lock = threading.Lock()
 
+# Human-in-the-loop approval store: run_id → {event, approved, subtasks}
+_approval_store: "dict[str, dict]" = {}
+
 
 # ── Models ─────────────────────────────────────────────────────────────────────
 
 class GoalRequest(BaseModel):
     goal: str
+
+
+class ApprovalRequest(BaseModel):
+    approved: bool
+    subtasks: Optional[list] = None
 
 
 # ── SSE helpers ────────────────────────────────────────────────────────────────
@@ -131,9 +140,30 @@ def _make_patched_logger(run_id: str):
 
 # ── Run orchestration in background thread ─────────────────────────────────────
 
+def _make_approval_callback(run_id: str):
+    """Returns a callback that pauses execution and waits for human plan approval via the web UI."""
+    def callback(goal: str, subtasks: list, plan_review: str) -> "tuple[bool, list | None]":
+        event = threading.Event()
+        _approval_store[run_id] = {"event": event, "approved": None, "subtasks": None}
+        # Emit plan_approval SSE event so the dashboard shows the approval modal
+        _emit(run_id, "plan_approval", json.dumps({
+            "goal": goal,
+            "subtasks": subtasks,
+            "plan_review": plan_review,
+        }))
+        # Block the worker thread for up to 5 minutes waiting for user response
+        timed_out = not event.wait(timeout=300)
+        if timed_out:
+            _approval_store.pop(run_id, None)
+            _emit(run_id, "orchestrator", "Plan approval timed out — proceeding automatically")
+            return True, None
+        data = _approval_store.pop(run_id, {})
+        return data.get("approved", True), data.get("subtasks")
+    return callback
+
+
 def _run_goal(run_id: str, goal: str) -> None:
     import utils.logger as logger_module
-    original_module = sys.modules.get("utils.logger")
     patched = _make_patched_logger(run_id)
 
     # Patch logger methods for duration of this run
@@ -146,14 +176,21 @@ def _run_goal(run_id: str, goal: str) -> None:
 
         _emit(run_id, "start", f"Starting: {goal}")
         orchestrator = Chloe()
-        # Fix 4: stream Aria's synthesis chunks to SSE in real-time
         orchestrator.stream_callback = lambda chunk: _emit(run_id, "synthesis", chunk)
+        orchestrator.approval_callback = _make_approval_callback(run_id)
         result = orchestrator.execute(goal)
         save_run(result)
         _emit(run_id, "summary", result.summary)
+        if result.plan_review:
+            _emit(run_id, "plan_review", result.plan_review)
         if result.hr_legal_review:
             _emit(run_id, "compliance", result.hr_legal_review)
         _emit(run_id, "done", f"Completed with {len(result.subtasks)} subtasks")
+    except RuntimeError as exc:
+        if "cancelled" in str(exc).lower():
+            _emit(run_id, "error", "Run cancelled by user.")
+        else:
+            _emit(run_id, "error", str(exc))
     except Exception as exc:
         _emit(run_id, "error", str(exc))
     finally:
@@ -189,6 +226,18 @@ async def stream_run(run_id: str):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.post("/approve/{run_id}")
+async def approve_run(run_id: str, req: ApprovalRequest):
+    """Human-in-the-loop: accept or cancel a plan, optionally with revised subtasks."""
+    if run_id not in _approval_store:
+        raise HTTPException(status_code=404, detail="No pending approval for this run_id")
+    data = _approval_store[run_id]
+    data["approved"] = req.approved
+    data["subtasks"] = req.subtasks
+    data["event"].set()
+    return {"status": "ok"}
 
 
 @app.get("/runs")

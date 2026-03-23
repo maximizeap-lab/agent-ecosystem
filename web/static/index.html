@@ -177,9 +177,93 @@
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #4a5568; border-radius: 3px; }
+
+    /* Plan approval modal */
+    #approval-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    #approval-modal.visible { display: flex; }
+    .approval-box {
+      background: #1a1a2e;
+      border: 1px solid #4a5568;
+      border-radius: 12px;
+      padding: 28px;
+      max-width: 640px;
+      width: 90%;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    .approval-box h2 { font-size: 1rem; color: #f6ad55; margin-bottom: 6px; }
+    .approval-box .goal-label { font-size: 0.8rem; color: #a0aec0; margin-bottom: 16px; }
+    .approval-box .task-list { list-style: none; margin-bottom: 16px; }
+    .approval-box .task-list li {
+      background: #111827;
+      border-radius: 6px;
+      padding: 8px 12px;
+      margin-bottom: 6px;
+      font-size: 0.83rem;
+      color: #e2e8f0;
+      border: 1px solid #2d3748;
+    }
+    .approval-box .task-list li input {
+      width: 100%;
+      background: transparent;
+      border: none;
+      color: #e2e8f0;
+      font-size: 0.83rem;
+      outline: none;
+    }
+    .approval-box .compliance-note {
+      background: #111827;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 16px;
+      font-size: 0.78rem;
+      color: #a0aec0;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      max-height: 160px;
+      overflow-y: auto;
+      border-left: 3px solid #f6ad55;
+    }
+    .approval-actions { display: flex; gap: 10px; }
+    .approval-actions button {
+      flex: 1;
+      padding: 10px;
+      border-radius: 8px;
+      border: none;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-accept { background: #2f855a; color: white; }
+    .btn-accept:hover { background: #276749; }
+    .btn-cancel { background: #c53030; color: white; }
+    .btn-cancel:hover { background: #9b2c2c; }
   </style>
 </head>
 <body>
+
+<!-- Plan approval modal -->
+<div id="approval-modal">
+  <div class="approval-box">
+    <h2>⚠️ Plan Approval Required</h2>
+    <div class="goal-label" id="approval-goal"></div>
+    <div id="approval-compliance" class="compliance-note" style="display:none"></div>
+    <p style="font-size:0.8rem;color:#a0aec0;margin-bottom:10px">Review and edit the planned subtasks, then accept or cancel:</p>
+    <ul class="task-list" id="approval-tasks"></ul>
+    <div class="approval-actions">
+      <button class="btn-accept" onclick="submitApproval(true)">✓ Accept Plan</button>
+      <button class="btn-cancel" onclick="submitApproval(false)">✗ Cancel Run</button>
+    </div>
+  </div>
+</div>
 
 <header>
   <h1>⚡ MAP HQ</h1>
@@ -315,6 +399,11 @@
       const text = JSON.parse(e.data);
       // Only overwrite if we didn't already stream it chunk-by-chunk
       if (!synthesisEl) document.getElementById('summary-view').textContent = text;
+    });
+
+    currentSource.addEventListener('plan_approval', e => {
+      const data = JSON.parse(JSON.parse(e.data));
+      showApprovalModal(data.goal, data.subtasks, data.plan_review, run_id);
     });
 
     currentSource.addEventListener('compliance', e => {
@@ -497,6 +586,43 @@
         </div>`;
     }).join('');
     document.getElementById('compliance-view').innerHTML = cards || '<p class="empty">No compliance data.</p>';
+  }
+
+  // ── Plan approval modal ──────────────────────────────────────────────────────
+  let _approvalRunId = null;
+
+  function showApprovalModal(goal, subtasks, planReview, runId) {
+    _approvalRunId = runId;
+    document.getElementById('approval-goal').textContent = 'Goal: ' + goal;
+    const taskList = document.getElementById('approval-tasks');
+    taskList.innerHTML = subtasks.map((t, i) =>
+      `<li><input type="text" value="${escapeHtml(t)}" id="approval-task-${i}" /></li>`
+    ).join('');
+    const complianceEl = document.getElementById('approval-compliance');
+    if (planReview) {
+      complianceEl.textContent = planReview;
+      complianceEl.style.display = 'block';
+    } else {
+      complianceEl.style.display = 'none';
+    }
+    document.getElementById('approval-modal').classList.add('visible');
+    // Switch to live feed so user can see the approval request
+    switchMainTab('live', document.querySelector('.main-tabs button:first-child'));
+    addFeedItem('warning', '⏸ Waiting for plan approval — check the approval dialog');
+  }
+
+  async function submitApproval(approved) {
+    document.getElementById('approval-modal').classList.remove('visible');
+    if (!_approvalRunId) return;
+    const taskInputs = document.querySelectorAll('[id^="approval-task-"]');
+    const subtasks = approved ? Array.from(taskInputs).map(el => el.value.trim()).filter(Boolean) : null;
+    await fetch('/approve/' + _approvalRunId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approved, subtasks }),
+    });
+    _approvalRunId = null;
+    addFeedItem(approved ? 'success' : 'error', approved ? '✓ Plan approved — dispatching workers…' : '✗ Run cancelled by user');
   }
 
   // ── Init ─────────────────────────────────────────────────────────────────────

@@ -205,6 +205,17 @@ def get_analytics() -> dict:
     }
 
 
+def get_model_failure_count(model: str) -> int:
+    """Return total failure count for a model — used by router for auto-routing improvement."""
+    init_db()
+    with _lock, _conn() as con:
+        row = con.execute(
+            "SELECT COALESCE(SUM(fail_count), 0) FROM model_performance WHERE model = ?",
+            (model,)
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+
 def get_all_runs(limit: int = 50) -> "list[dict]":
     init_db()
     with _lock, _conn() as con:

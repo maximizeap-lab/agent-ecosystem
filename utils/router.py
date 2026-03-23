@@ -81,10 +81,20 @@ def route_task(task: str) -> "tuple[str, str]":
 
     provider: 'local' | 'haiku'
     model:    model name string
+
+    Improvement 5: auto-routing override — if a local model has 3+ recorded failures,
+    fall back to Haiku rather than routing to a known-failing model.
     """
     category = _classify(task)
     if category in LOCAL_MODELS:
-        return "local", LOCAL_MODELS[category]
+        local_model = LOCAL_MODELS[category]
+        try:
+            from utils.memory import get_model_failure_count
+            if get_model_failure_count(local_model) >= 3:
+                return "haiku", "claude-haiku-4-5-20251001"
+        except Exception:
+            pass
+        return "local", local_model
     return "haiku", "claude-haiku-4-5-20251001"
 
 
