@@ -1,0 +1,18 @@
+{
+  "name": "MAP HQ",
+  "short_name": "MAP HQ",
+  "description": "Multi-agent AI orchestration by Peter",
+  "start_url": "/m",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#0d0d0f",
+  "background_color": "#0d0d0f",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230d0d0f'/><text y='72' x='50' text-anchor='middle' font-size='60'>⚡</text></svg>",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
