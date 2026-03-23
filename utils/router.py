@@ -10,7 +10,7 @@ Local model assignment:
   deepseek-coder:6.7b  → code, implementation, API, tests, frontend, backend
   mistral:7b           → schemas, configs, database, JSON, structured output
   llama3.1:8b          → research, writing, design, UX
-  phi3.5:mini          → documentation, guides, README
+  phi3.5               → documentation, guides, README
   gemma2:9b            → analysis, comparison, reasoning, strategy
 
 Classification is done via a fast Claude Haiku call for accuracy.
@@ -24,7 +24,7 @@ LOCAL_MODELS = {
     "code":     "deepseek-coder:6.7b",
     "schema":   "mistral:7b",
     "design":   "llama3.1:8b",
-    "docs":     "phi3.5:mini",
+    "docs":     "phi3.5",
     "analysis": "gemma2:9b",
 }
 

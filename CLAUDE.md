@@ -111,7 +111,7 @@ Haiku classifies each task into a category, then routes to the best local model.
 | code | deepseek-coder:6.7b | Local |
 | schema | mistral:7b | Local |
 | design | llama3.1:8b | Local |
-| docs | phi3.5:mini | Local |
+| docs | phi3.5 | Local |
 | analysis | gemma2:9b | Local |
 | other / unmatched | claude-haiku-4-5 | Anthropic |
 | planning | claude-haiku-4-5 | Anthropic |

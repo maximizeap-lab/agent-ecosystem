@@ -25,7 +25,7 @@ ollama pull deepseek-coder:6.7b
 ollama pull mistral:7b
 
 # 5. Analysis and reasoning
-ollama pull phi3.5:mini
+ollama pull phi3.5
 
 # 6. Complex multi-step reasoning
 ollama pull gemma2:9b

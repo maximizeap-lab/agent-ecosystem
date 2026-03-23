@@ -50,7 +50,7 @@ class Luna:
                 temperature=0.3,
             )
             # Only pass tools if the model likely supports them (not phi3.5 / llama3.2)
-            _NO_TOOL_MODELS = {"phi3.5:mini", "llama3.2:3b"}
+            _NO_TOOL_MODELS = {"phi3.5", "phi3.5:latest", "llama3.2:3b"}
             if tools and self.model not in _NO_TOOL_MODELS:
                 kwargs["tools"] = WORKER_TOOLS_OPENAI
 
