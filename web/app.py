@@ -387,6 +387,14 @@ async def analytics():
     init_db(); return get_analytics()
 
 
+@app.get("/url")
+async def tunnel_url():
+    """Returns the current Cloudflare tunnel URL (written by start_tunnel.sh)."""
+    url_file = Path(__file__).resolve().parent.parent / "logs" / "tunnel_url.txt"
+    url = url_file.read_text().strip() if url_file.exists() else ""
+    return {"url": url, "mobile": f"{url}/m" if url else ""}
+
+
 @app.get("/status")
 async def status():
     try:
