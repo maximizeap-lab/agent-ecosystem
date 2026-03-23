@@ -219,12 +219,28 @@ agent-ecosystem/
 14. **Persistent classification cache** — task→category mapping stored in SQLite; survives process restarts (backed by lru_cache in-process)
 15. **Worker timeout** — hung workers (e.g. stalled Ollama) killed after 120s/worker; run continues with error result
 16. **Safe message handling** — `run_with_usage()` works on a copy of the messages list; caller's list never mutated
+17. **Worker result sharing** — failed/thin workers are retried with context from successful peers injected into their prompt
+18. **Feedback loop** — after synthesis, Chloe evaluates if goal was met; retries Aria with directive prompt if not
+19. **SSE synthesis streaming** — Aria's output streams chunk-by-chunk to web UI via `stream_callback`; Summary tab fills in real-time
+20. **Free health pings** — `models.list()` replaces `messages.create()` in all 3 health check locations (no tokens spent)
+21. **Cost spike alerting** — macOS notification + log warning when any run exceeds $0.10
+22. **AST-based sandbox** — `run_code` uses `ast.parse()` to block dangerous imports/calls; prevents known string-matching bypasses
+23. **Path traversal protection** — `write_file` resolves path and rejects anything outside `runs/artifacts/`
+24. **39 unit tests** — `tests/` covers tools (safety, path traversal, execution), router, and memory
 
 ## Security
 
-- `run_code` tool is sandboxed: blocked patterns (os.system, subprocess, shutil.rmtree), temp dir isolation, minimal env (no secrets exposed)
+- `run_code` tool is sandboxed: AST-based check blocks `import os/subprocess/shutil/sys`, `exec/eval/compile()` calls, and `__builtins__` subscript bypasses; temp dir isolation; minimal env (no secrets exposed)
+- `write_file` resolves path with `.resolve()` and rejects any filename that escapes `runs/artifacts/` (path traversal protection)
 - Web dashboard `/run` endpoint protected by HTTP Basic Auth when `DASHBOARD_API_KEY` is set
 - `.env` is gitignored — never committed
+
+## Tests
+
+Run: `python3 -m unittest discover -s tests -v`
+- `tests/test_tools.py` — sandbox safety, path traversal, write_file, read_file, run_code
+- `tests/test_router.py` — route_task for all categories, ollama_available()
+- `tests/test_memory.py` — save/recall runs, model tracking, classification cache, specialist cache
 
 ## Observability
 
