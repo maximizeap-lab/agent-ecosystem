@@ -191,6 +191,8 @@ class Chloe(Maya):
 
         try:
             cleaned = raw.strip()
+            if len(cleaned) > 32_000:
+                raise ValueError("Orchestrator response too large (>32KB)")
             if cleaned.startswith("```"):
                 cleaned = cleaned.split("```")[1]
                 if cleaned.startswith("json"):
@@ -201,6 +203,8 @@ class Chloe(Maya):
                 isinstance(t, str) for t in subtasks
             ):
                 raise ValueError("Expected a JSON array of strings.")
+            if any(len(t) > 2_000 for t in subtasks):
+                raise ValueError("One or more subtasks exceed 2000 characters")
         except (json.JSONDecodeError, ValueError) as exc:
             logger.error(f"Failed to parse subtasks from orchestrator response: {exc}")
             logger.error(f"Raw response was: {raw!r}")

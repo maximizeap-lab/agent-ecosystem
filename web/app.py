@@ -45,23 +45,66 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 import anthropic
+import re
 import secrets
-from fastapi import FastAPI, HTTPException, Depends, Query, Header
+from fastapi import FastAPI, HTTPException, Depends, Query, Header, Request, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+_SECRET_PATTERN = re.compile(r'(sk-ant-[A-Za-z0-9_\-]{20,}|Bearer\s+\S{10,})')
+
+def _mask(text: str) -> str:
+    return _SECRET_PATTERN.sub("***REDACTED***", str(text))
+
 from utils.memory import get_all_runs, get_run, init_db, get_analytics
 
 app = FastAPI(title="MAP HQ")
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    if not request.url.path.startswith("/stream") and not request.url.path.startswith("/chat/stream"):
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "connect-src 'self'"
+        )
+    return response
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://agent-ecosystem-five.vercel.app",
+        "https://agent-ecosystem.vercel.app",
+        "http://localhost:8000",
+        "http://localhost:3000",
+    ],
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
 )
+
+_RUN_RATE: dict = {}  # ip → [timestamps]
+_RUN_RATE_LOCK = threading.Lock()
+_RUN_RATE_LIMIT = 10   # max requests
+_RUN_RATE_WINDOW = 60  # per 60 seconds
+
+def _check_rate_limit(client_ip: str) -> bool:
+    now = time.time()
+    with _RUN_RATE_LOCK:
+        times = _RUN_RATE.get(client_ip, [])
+        times = [t for t in times if now - t < _RUN_RATE_WINDOW]
+        if len(times) >= _RUN_RATE_LIMIT:
+            return False
+        times.append(now)
+        _RUN_RATE[client_ip] = times
+    return True
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 ARTIFACTS_DIR = Path(__file__).resolve().parent.parent / "runs" / "artifacts"
 
@@ -113,13 +156,19 @@ def _emit(run_id: str, event: str, data: str) -> None:
             _run_queues[run_id].put(msg)
 
 
+_SSE_MAX_SECONDS = 3600  # 1 hour hard cap per stream
+
 async def _sse_generator(run_id: str) -> AsyncGenerator[str, None]:
     with _run_lock:
         if run_id not in _run_queues:
             _run_queues[run_id] = queue.Queue()
     q = _run_queues[run_id]
+    deadline = time.time() + _SSE_MAX_SECONDS
     try:
         while True:
+            if time.time() > deadline:
+                yield f"event: error\ndata: {json.dumps('stream timeout')}\n\n"
+                break
             try:
                 msg = q.get(timeout=0.1)
                 yield msg
@@ -298,8 +347,11 @@ async def service_worker():
 # ── Routes — MAP HQ ───────────────────────────────────────────────────────────
 
 @app.post("/run")
-async def submit_run(req: GoalRequest, _auth=Depends(_require_auth),
-                     _tok=Depends(_require_token)):
+async def submit_run(req: GoalRequest, request: Request,
+                     _auth=Depends(_require_auth), _tok=Depends(_require_token)):
+    client_ip = request.client.host if request.client else "unknown"
+    if not _check_rate_limit(client_ip):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded — max 10 runs/minute")
     run_id = str(uuid.uuid4())[:8]
     with _run_lock:
         _run_queues[run_id] = queue.Queue()
@@ -359,12 +411,12 @@ async def chat_clear(req: ChatMessage, _tok=Depends(_require_token)):
 # ── Routes — Data ─────────────────────────────────────────────────────────────
 
 @app.get("/runs")
-async def list_runs():
+async def list_runs(_auth=Depends(_require_auth)):
     init_db(); return get_all_runs(limit=50)
 
 
 @app.get("/runs/{run_id}")
-async def get_run_detail(run_id: int):
+async def get_run_detail(run_id: int, _auth=Depends(_require_auth)):
     init_db()
     run = get_run(run_id)
     if not run:
@@ -373,7 +425,7 @@ async def get_run_detail(run_id: int):
 
 
 @app.get("/artifacts")
-async def list_artifacts():
+async def list_artifacts(_auth=Depends(_require_auth)):
     if not ARTIFACTS_DIR.exists():
         return []
     return [{"path": str(f.relative_to(ARTIFACTS_DIR)),
@@ -382,7 +434,7 @@ async def list_artifacts():
 
 
 @app.get("/artifacts/{filepath:path}")
-async def get_artifact(filepath: str):
+async def get_artifact(filepath: str, _auth=Depends(_require_auth)):
     path = ARTIFACTS_DIR / filepath
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="Artifact not found")
@@ -390,7 +442,7 @@ async def get_artifact(filepath: str):
 
 
 @app.get("/analytics")
-async def analytics():
+async def analytics(_auth=Depends(_require_auth)):
     init_db(); return get_analytics()
 
 

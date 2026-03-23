@@ -35,13 +35,19 @@ export default async function handler(req) {
     return new Response('Method not allowed', { status: 405 });
   }
 
-  // Auth
+  // Auth — timing-safe comparison to prevent token enumeration attacks
   const expectedToken = process.env.MOBILE_ACCESS_TOKEN;
   if (expectedToken) {
     const auth = req.headers.get('Authorization') || '';
     const qToken = new URL(req.url).searchParams.get('token') || '';
     const provided = auth.startsWith('Bearer ') ? auth.slice(7) : qToken;
-    if (!provided || provided !== expectedToken) {
+    // Pad to same length before comparison to prevent length-based timing leaks
+    const a = new TextEncoder().encode(provided.padEnd(64, '\0'));
+    const b = new TextEncoder().encode(expectedToken.padEnd(64, '\0'));
+    let mismatch = a.length !== b.length ? 1 : 0;
+    const len = Math.min(a.length, b.length);
+    for (let i = 0; i < len; i++) mismatch |= a[i] ^ b[i];
+    if (!provided || mismatch !== 0) {
       return new Response('Unauthorized', { status: 401 });
     }
   }
