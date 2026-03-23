@@ -9,7 +9,7 @@ When starting any session in this project, Claude MUST:
    python3 scripts/launch.py --status
    ```
 2. **If the API check fails** → run `python3 scripts/launch.py --heal` to auto-fix
-3. **Check if Ollama is running** — if offline, remind the user to run `ollama serve`
+3. **Check if Ollama is running** — if offline, start it with `brew services start ollama` (installed, managed by Homebrew)
 4. **Read this file** before making any code changes — all architecture decisions are documented here
 5. **Never change the model routing** in `utils/router.py` without checking the routing table in this file first
 6. **Always run imports check after edits:**
@@ -120,8 +120,19 @@ Haiku classifies each task into a category, then routes to the best local model.
 ## Key Commands
 
 ```bash
-# Web dashboard (recommended)
+# Web dashboard (local)
 python3 web/app.py            # open http://localhost:8000
+                              # Mobile: http://localhost:8000/m
+
+# Mobile PWA (always-on via Vercel)
+# https://agent-ecosystem-five.vercel.app
+# Set ANTHROPIC_API_KEY + MOBILE_ACCESS_TOKEN in Vercel env vars
+
+# Ollama (managed by Homebrew — auto-starts on login)
+brew services start ollama    # start
+brew services stop ollama     # stop
+brew services list | grep ollama  # check status
+ollama list                   # show installed models
 
 # CLI — run a goal
 python3 scripts/launch.py "your goal here"
@@ -136,9 +147,6 @@ python3 scripts/batch_run.py --results <batch_id>
 # Self-healing daemon (managed by launchd — runs automatically)
 python3 monitor/heal.py --daemon   # manual start (usually not needed)
 python3 monitor/heal.py --once     # single health check
-
-# Setup local models (first time only, ~25GB, 20-30 min)
-bash scripts/setup_ollama.sh
 ```
 
 ## Worker Tools
@@ -192,6 +200,23 @@ Pricing used (per 1M tokens):
 
 `web/app.py` — POST `/run` is protected by HTTP Basic Auth when `DASHBOARD_API_KEY` is set in `.env`.
 Leave blank for local dev. Set a password before deploying.
+
+## Deployment
+
+**Vercel (mobile PWA + Claude chat — always-on):**
+- URL: `https://agent-ecosystem-five.vercel.app`
+- Serves: `public/app.html` (mobile PWA with login, chat, run tab)
+- Edge function: `api/chat.js` — streams Claude Sonnet directly from Vercel's edge network
+- Required env vars in Vercel dashboard: `ANTHROPIC_API_KEY`, `MOBILE_ACCESS_TOKEN`
+- To redeploy: `vercel --prod` or push to main (if GitHub integration is active)
+
+**GitHub:**
+- Remote: `https://github.com/maximizeap-lab/agent-ecosystem.git`
+- Branch: `main`
+
+**Local FastAPI dashboard:**
+- `python3 web/app.py` → `http://localhost:8000` (desktop) + `/m` (mobile)
+- Expose via Cloudflare tunnel: `bash scripts/start_tunnel.sh`
 
 ## Heartbeat / Daemon (launchd)
 
@@ -310,4 +335,5 @@ Run: `python3 -m unittest discover -s tests -v`
 - Python 3.9.6
 - `ANTHROPIC_API_KEY` in `.env`
 - `DASHBOARD_API_KEY` in `.env` (optional — protects web dashboard)
-- Ollama at `http://localhost:11434` (optional but recommended)
+- `MOBILE_ACCESS_TOKEN` in `.env` and Vercel env vars (optional — protects mobile endpoints)
+- Ollama at `http://localhost:11434` — **installed via Homebrew** (`brew install ollama`), managed as a service (`brew services start ollama`), auto-starts on login
