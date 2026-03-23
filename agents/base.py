@@ -196,7 +196,7 @@ WORKER_TOOLS = [
             "type": "object",
             "properties": {
                 "question":   {"type": "string", "description": "Question for the specialist"},
-                "specialist": {"type": "string", "description": "Specialist type: security | architecture | database | devops | frontend | performance | hr | legal"},
+                "specialist": {"type": "string", "description": "Specialist type: security | architecture | database | devops | frontend | performance | hr_compliance | employment_law | payroll | data_privacy | workplace_safety"},
             },
             "required": ["question", "specialist"],
         },

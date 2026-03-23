@@ -468,25 +468,35 @@
   }
 
   // ── HR & Legal compliance panel ──────────────────────────────────────────────
+  const _AGENT_COLORS = {
+    '👥 HR Compliance Officer':         '#68d391',
+    '⚖️ Employment Law Attorney':        '#63b3ed',
+    '💰 Payroll & Benefits Officer':     '#f6ad55',
+    '🔒 Data Privacy & Security Officer':'#9f7aea',
+    '🦺 Workplace Safety Officer':       '#fc8181',
+  };
+
   function renderCompliance(text) {
     if (!text) return;
-    const parts = text.split('\n\n**Legal Department:**\n');
-    const hrText   = parts[0].replace('**HR Department:**\n', '').trim();
-    const legalText = (parts[1] || '').trim();
-
-    const hrAllClear    = hrText.toLowerCase().includes('no hr concerns');
-    const legalAllClear = legalText.toLowerCase().includes('no legal concerns');
-
-    document.getElementById('compliance-view').innerHTML = `
-      <div class="compliance-section">
-        <h3 class="hr-header">👥 HR Department</h3>
-        <div class="body ${hrAllClear ? 'all-clear' : 'concern'}">${escapeHtml(hrText)}</div>
-      </div>
-      <div class="compliance-section">
-        <h3 class="leg-header">⚖️ Legal Department</h3>
-        <div class="body ${legalAllClear ? 'all-clear' : 'concern'}">${escapeHtml(legalText)}</div>
-      </div>
-    `;
+    // Split on section dividers
+    const sections = text.split('\n\n---\n\n');
+    const cards = sections.map(section => {
+      const headerMatch = section.match(/^\*\*(.+?)\*\*:\n([\s\S]*)/);
+      if (!headerMatch) return '';
+      const label   = headerMatch[1].trim();
+      const body    = headerMatch[2].trim();
+      const color   = _AGENT_COLORS[label] || '#a0aec0';
+      const isGood  = body.includes('✅') || body.toLowerCase().includes('no ') && body.toLowerCase().includes('concerns identified');
+      const isBad   = body.includes('🚫');
+      const isWarn  = body.includes('⚠️');
+      const bodyClass = isBad ? 'concern' : isWarn ? 'concern' : isGood ? 'all-clear' : '';
+      return `
+        <div class="compliance-section" style="border-color:${color}22;border-left:3px solid ${color}">
+          <h3 style="color:${color}">${escapeHtml(label)}</h3>
+          <div class="body ${bodyClass}">${escapeHtml(body)}</div>
+        </div>`;
+    }).join('');
+    document.getElementById('compliance-view').innerHTML = cards || '<p class="empty">No compliance data.</p>';
   }
 
   // ── Init ─────────────────────────────────────────────────────────────────────

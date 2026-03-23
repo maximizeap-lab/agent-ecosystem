@@ -224,42 +224,62 @@ class Chloe(Maya):
         return final
 
     def _review(self, goal: str, worker_results: list[WorkerResult]) -> str:
-        """Run HR and Legal compliance review concurrently on worker outputs.
-        Results are cached in SQLite — identical goal/outputs don't re-call the API."""
-        from concurrent.futures import ThreadPoolExecutor
-        from utils.bus import bus
+        """Route to the relevant compliance agents based on goal content.
+        Only agents triggered by keywords are invoked — all run concurrently.
+        Results cached in SQLite so identical goals never re-call the API."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from utils.bus import bus, COMPLIANCE_TRIGGERS
 
-        # Summarise work outputs concisely for review (keep prompts lean for Haiku)
+        # Summarise work for review (lean for Haiku)
         work_summary = f"Goal: {goal}\n\n" + "\n\n".join(
-            f"Task: {r.task}\nOutput: {r.result[:500]}"
-            for r in worker_results[:6]
+            f"Task: {r.task}\nOutput: {r.result[:400]}" for r in worker_results[:6]
+        )
+        scan_text = (goal + " " + " ".join(r.task for r in worker_results)).lower()
+
+        # Intelligent routing — only invoke agents triggered by content
+        triggered = [
+            key for key, keywords in COMPLIANCE_TRIGGERS.items()
+            if any(kw in scan_text for kw in keywords)
+        ]
+        # data_privacy is always relevant for any digital work
+        if "data_privacy" not in triggered:
+            triggered.append("data_privacy")
+
+        _LABELS = {
+            "hr_compliance":   "👥 HR Compliance Officer",
+            "employment_law":  "⚖️ Employment Law Attorney",
+            "payroll":         "💰 Payroll & Benefits Officer",
+            "data_privacy":    "🔒 Data Privacy & Security Officer",
+            "workplace_safety":"🦺 Workplace Safety Officer",
+        }
+        _REVIEW_PROMPT = (
+            "Review the following work and outputs. Run your full checklist. "
+            "Use your output format (✅/⚠️/🚫 + statute cite + next steps).\n\n{summary}"
         )
 
-        hr_question = (
-            f"Review the following work and outputs for HR compliance and people impact. "
-            f"Flag any specific concerns about fairness, bias, discrimination, data privacy, "
-            f"or employee rights. If no concerns, say 'No HR concerns identified.'\n\n{work_summary}"
-        )
-        legal_question = (
-            f"Review the following work and outputs for legal compliance and liability. "
-            f"Flag any specific concerns about data privacy law (GDPR/CCPA), intellectual property, "
-            f"regulatory compliance, or legal risk. If no concerns, say 'No legal concerns identified.'\n\n{work_summary}"
-        )
+        logger.orchestrator(f"Compliance routing → {', '.join(_LABELS.get(k, k) for k in triggered)}")
 
-        hr_result = legal_result = ""
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            hr_future   = pool.submit(bus.ask, hr_question,    "hr")
-            legal_future = pool.submit(bus.ask, legal_question, "legal")
-            try:
-                hr_result = hr_future.result(timeout=45)
-            except Exception as exc:
-                hr_result = f"HR review unavailable: {exc}"
-            try:
-                legal_result = legal_future.result(timeout=45)
-            except Exception as exc:
-                legal_result = f"Legal review unavailable: {exc}"
+        results: dict[str, str] = {}
+        with ThreadPoolExecutor(max_workers=len(triggered)) as pool:
+            futures = {
+                pool.submit(bus.ask, _REVIEW_PROMPT.format(summary=work_summary), key): key
+                for key in triggered
+            }
+            for future in as_completed(futures, timeout=60):
+                key = futures[future]
+                try:
+                    results[key] = future.result()
+                except Exception as exc:
+                    results[key] = f"Review unavailable: {exc}"
 
-        return f"**HR Department:**\n{hr_result}\n\n**Legal Department:**\n{legal_result}"
+        # Preserve a consistent agent order
+        order = ["hr_compliance", "employment_law", "payroll", "data_privacy", "workplace_safety"]
+        parts = []
+        for key in order:
+            if key in results:
+                parts.append(f"**{_LABELS[key]}:**\n{results[key]}")
+
+        return "\n\n---\n\n".join(parts)
 
     def _evaluate(self, goal: str, summary: str) -> bool:
         """Ask Haiku if the summary actually addresses the goal. Returns True if satisfied."""
