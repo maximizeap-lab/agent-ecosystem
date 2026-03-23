@@ -46,7 +46,15 @@ Category:"""
 
 @lru_cache(maxsize=256)
 def _classify(task: str) -> str:
-    """Call Haiku to classify a task. Cached so identical tasks don't re-call."""
+    """Classify a task. Checks SQLite cache first, then calls Haiku. In-process lru_cache on top."""
+    try:
+        from utils.memory import get_classification_cache, set_classification_cache
+        cached = get_classification_cache(task)
+        if cached:
+            return cached
+    except Exception:
+        pass  # DB unavailable — fall through to API call
+
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
@@ -56,9 +64,15 @@ def _classify(task: str) -> str:
             messages=[{"role": "user", "content": _CLASSIFY_PROMPT.format(task=task)}],
         )
         category = resp.content[0].text.strip().lower()
-        return category if category in LOCAL_MODELS else "other"
+        result = category if category in LOCAL_MODELS else "other"
     except Exception:
-        return "other"
+        result = "other"
+
+    try:
+        set_classification_cache(task, result)
+    except Exception:
+        pass
+    return result
 
 
 def route_task(task: str) -> "tuple[str, str]":

@@ -28,16 +28,18 @@ class WorkerResult(BaseModel):
 class Nova(Maya):
     """Handles a single focused subtask, routing to the most efficient model."""
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, ollama_up: "bool | None" = None, **kwargs) -> None:
         kwargs.setdefault("system_prompt", WORKER_SYSTEM_PROMPT)
         super().__init__(**kwargs)
+        self._ollama_up_override = ollama_up  # pre-computed by orchestrator — avoids redundant HTTP ping
 
     def execute(self, task: str) -> WorkerResult:
         logger.worker(f"Starting task: {task}")
 
         messages = [{"role": "user", "content": task}]
         provider, model = route_task(task)
-        self._ollama_up = ollama_available()
+        # Use pre-computed value if available; only ping Ollama if not provided
+        self._ollama_up = self._ollama_up_override if self._ollama_up_override is not None else ollama_available()
 
         input_tokens = output_tokens = 0
 

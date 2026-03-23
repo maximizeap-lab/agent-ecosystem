@@ -1,5 +1,5 @@
 import json
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
 from typing import Any
 
 from pydantic import BaseModel
@@ -131,12 +131,25 @@ class Chloe(Maya):
 
     def _dispatch(self, subtasks: list[str]) -> list[WorkerResult]:
         """Spawn workers in parallel and collect results in original order."""
+        from utils.router import route_task, ollama_available
+
         total = len(subtasks)
         logger.orchestrator(f"Dispatching {total} workers in parallel…")
         results: list[WorkerResult | None] = [None] * total
 
+        # Fix 1: check Ollama once for all workers instead of once per worker
+        ollama_up = ollama_available()
+
+        # Fix 2: dynamic worker count — local tasks don't consume Anthropic rate limits
+        routes = [route_task(task) for task in subtasks]
+        api_count   = sum(1 for p, _ in routes if p != "local" or not ollama_up)
+        local_count = total - api_count
+        max_w = min(local_count, 5) + min(api_count, 2)
+        max_w = max(max_w, 1)
+        logger.orchestrator(f"Workers: {local_count} local (max 5) + {api_count} API (max 2) → pool={max_w}")
+
         def _run(index: int, task: str) -> tuple[int, WorkerResult]:
-            worker = Nova(max_retries=self.max_retries)
+            worker = Nova(max_retries=self.max_retries, ollama_up=ollama_up)
             try:
                 return index, worker.execute(task)
             except Exception as exc:
@@ -145,14 +158,23 @@ class Chloe(Maya):
                 record_model_failure(task[:80], "unknown")
                 return index, WorkerResult(task=task, result=f"[ERROR: {exc}]", model_used="failed")
 
-        with ThreadPoolExecutor(max_workers=min(total, 2)) as pool:
+        with ThreadPoolExecutor(max_workers=max_w) as pool:
             futures = {pool.submit(_run, i, task): i for i, task in enumerate(subtasks)}
             completed = 0
-            for future in as_completed(futures):
-                index, result = future.result()
-                results[index] = result
-                completed += 1
-                logger.orchestrator(f"Worker {completed}/{total} done: {result.task[:60]}…")
+            # Fix 5: timeout so a hung worker (e.g. stalled Ollama) never blocks forever
+            try:
+                for future in as_completed(futures, timeout=120 * total):
+                    index, result = future.result()
+                    results[index] = result
+                    completed += 1
+                    logger.orchestrator(f"Worker {completed}/{total} done: {result.task[:60]}…")
+            except FuturesTimeout:
+                logger.error("Some workers timed out — marking remaining as failed")
+                for future, idx in futures.items():
+                    if not future.done():
+                        results[idx] = WorkerResult(
+                            task=subtasks[idx], result="[ERROR: worker timed out]", model_used="failed"
+                        )
 
         return [r for r in results if r is not None]
 

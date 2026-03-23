@@ -67,11 +67,12 @@ class Maya:
         )
         def _call() -> "tuple[str, int, int]":
             nonlocal total_in, total_out
+            msgs = list(messages)  # work on a copy — never mutate the caller's list
             kwargs: dict[str, Any] = dict(
                 model=self.model,
                 max_tokens=WORKER_MAX_TOKENS,
                 system=[{"type": "text", "text": self.system_prompt, "cache_control": {"type": "ephemeral"}}],
-                messages=messages,
+                messages=msgs,
             )
             if tools:
                 kwargs["tools"] = tools
@@ -86,9 +87,9 @@ class Maya:
                     if block.type == "tool_use":
                         result = _dispatch_tool(block.name, block.input)
                         tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
-                messages.append({"role": "assistant", "content": response.content})
-                messages.append({"role": "user", "content": tool_results})
-                response = self.client.messages.create(**kwargs | {"messages": messages})
+                msgs.append({"role": "assistant", "content": response.content})
+                msgs.append({"role": "user", "content": tool_results})
+                response = self.client.messages.create(**kwargs | {"messages": msgs})
                 total_in += response.usage.input_tokens
                 total_out += response.usage.output_tokens
 

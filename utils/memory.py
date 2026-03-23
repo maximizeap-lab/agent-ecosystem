@@ -53,6 +53,12 @@ def init_db() -> None:
 
             CREATE VIRTUAL TABLE IF NOT EXISTS runs_fts
                 USING fts5(goal, summary, content=runs, content_rowid=id);
+
+            CREATE TABLE IF NOT EXISTS classification_cache (
+                task      TEXT PRIMARY KEY,
+                category  TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
         """)
         # Migrate existing runs table if columns are missing
         existing = {row[1] for row in con.execute("PRAGMA table_info(runs)").fetchall()}
@@ -133,6 +139,26 @@ def record_model_failure(task_pattern: str, model: str) -> None:
             ON CONFLICT(task_pattern) DO UPDATE SET fail_count = fail_count + 1
             """,
             (task_pattern, model),
+        )
+
+
+# ── Classification cache (persistent across sessions) ────────────────────────
+
+def get_classification_cache(task: str) -> "str | None":
+    init_db()
+    with _lock, _conn() as con:
+        row = con.execute(
+            "SELECT category FROM classification_cache WHERE task = ?", (task,)
+        ).fetchone()
+        return row["category"] if row else None
+
+
+def set_classification_cache(task: str, category: str) -> None:
+    init_db()
+    with _lock, _conn() as con:
+        con.execute(
+            "INSERT OR REPLACE INTO classification_cache (task, category, created_at) VALUES (?, ?, ?)",
+            (task, category, datetime.now().isoformat()),
         )
 
 
