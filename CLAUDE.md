@@ -56,6 +56,8 @@ Decomposes goals into subtasks, routes them to the most efficient model, and syn
 | **Nova** | `Nova` (worker.py) | Executor — routes and runs tasks | Routed |
 | **Luna** | `Luna` (local_agent.py) | Local runner — free, Ollama-backed | Ollama |
 | **Maya** | `Maya` (base.py) | The mother — base class all agents inherit | — |
+| **HR Dept** | specialist via `bus.py` | Reviews every run for HR compliance, fairness, privacy | Claude Haiku |
+| **Legal Dept** | specialist via `bus.py` | Reviews every run for legal compliance, liability, regulation | Claude Haiku |
 
 ## Architecture
 
@@ -118,11 +120,24 @@ bash scripts/setup_ollama.sh
 | `run_code` | Executes Python code, returns output (15s timeout) |
 | `ask_specialist` | Consults a specialist agent (security/architecture/database/devops/frontend/performance) |
 
+## HR & Legal Department
+
+Every run automatically passes through a concurrent HR and Legal compliance review after workers complete but before Aria synthesises:
+
+- **HR Review** — flags fairness, discrimination, bias, data privacy, employee rights concerns
+- **Legal Review** — flags GDPR/CCPA, IP, regulatory compliance, liability concerns
+- Results are injected into Aria's synthesis so the final output explicitly addresses any concerns
+- Both reviews are cached in SQLite — same goal never re-calls the API
+- Shown in the dedicated **HR & Legal tab** in the web dashboard
+- Workers can also call `ask_specialist(specialist="hr")` or `ask_specialist(specialist="legal")` mid-task
+
 ## Agent-to-Agent Communication (utils/bus.py)
 
 Workers can consult specialists mid-task via `ask_specialist` tool. The bus spins up a
 Maya (Claude Haiku) specialist with a domain-specific system prompt. Results are cached to avoid
 duplicate calls.
+
+Available specialists: `security`, `architecture`, `database`, `devops`, `frontend`, `performance`, `hr`, `legal`
 
 ## Memory (utils/memory.py)
 
