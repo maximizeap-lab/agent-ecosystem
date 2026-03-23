@@ -101,7 +101,7 @@ class Chloe(Maya):
             logger.warning(f"Cost alert: ${total_cost:.4f} exceeds ${_COST_ALERT_USD} threshold")
             try:
                 from monitor.heal import _notify
-                _notify("💰 Agent Ecosystem", f"High-cost run: ${total_cost:.4f} — {goal[:50]}")
+                _notify("💰 MAP HQ", f"High-cost run: ${total_cost:.4f} — {goal[:50]}")
             except Exception:
                 pass
 

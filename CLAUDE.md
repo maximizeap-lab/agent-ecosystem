@@ -1,4 +1,4 @@
-# Agent Ecosystem — CLAUDE.md
+# MAP HQ — CLAUDE.md
 
 ## Session Start Instructions (ALWAYS follow these)
 
@@ -165,23 +165,23 @@ Leave blank for local dev. Set a password before deploying.
 ## Heartbeat / Daemon (launchd)
 
 A macOS **launchd** job runs the heal daemon 24/7:
-- **Plist:** `~/Library/LaunchAgents/com.petergirgis.agent-ecosystem.plist`
+- **Plist:** `~/Library/LaunchAgents/com.petergirgis.map-hq.plist`
 - **Auto-starts:** on every Mac login
 - **Auto-restarts:** on crash (30s cooldown)
 - **Health check:** every 24 hours — pings Anthropic API
 - **Logs:** `logs/daemon.log` + `logs/daemon.error.log`
 
 ```bash
-launchctl list | grep agent-ecosystem        # check status
+launchctl list | grep map-hq        # check status
 tail -f logs/daemon.log                      # live log
-launchctl unload ~/Library/LaunchAgents/com.petergirgis.agent-ecosystem.plist  # stop
-launchctl load ~/Library/LaunchAgents/com.petergirgis.agent-ecosystem.plist    # start
+launchctl unload ~/Library/LaunchAgents/com.petergirgis.map-hq.plist  # stop
+launchctl load ~/Library/LaunchAgents/com.petergirgis.map-hq.plist    # start
 ```
 
 ## File Structure
 
 ```
-agent-ecosystem/
+map-hq/
 ├── agents/
 │   ├── base.py           # Maya — prompt caching, tool loop, streaming, cost tracking
 │   ├── orchestrator.py   # Chloe — plans (Haiku+memory), parallel Nova workers, Aria synthesis
@@ -213,7 +213,7 @@ agent-ecosystem/
 │   └── daemon.error.log  # launchd stderr
 ├── README.md             # Public-facing project documentation
 └── ~/Library/LaunchAgents/
-    └── com.petergirgis.agent-ecosystem.plist  # macOS launchd heartbeat
+    └── com.petergirgis.map-hq.plist  # macOS launchd heartbeat
 ```
 
 ## Efficiency Stack

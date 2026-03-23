@@ -17,7 +17,7 @@ GOAL = (
 
 
 def main() -> None:
-    console.print(Rule("[bold cyan]Multi-Agent Ecosystem[/bold cyan]"))
+    console.print(Rule("[bold cyan]Multi-MAP HQ[/bold cyan]"))
     console.print()
 
     console.print(

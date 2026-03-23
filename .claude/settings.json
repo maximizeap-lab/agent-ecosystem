@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd /Users/petergirgis/agent-ecosystem && python3 scripts/launch.py --status 2>&1 | head -8",
+            "command": "cd /Users/petergirgis/map-hq && python3 scripts/launch.py --status 2>&1 | head -8",
             "statusMessage": "Running health check...",
             "timeout": 30
           }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ \"$PWD\" = \"/Users/petergirgis/agent-ecosystem\" ] && cd /Users/petergirgis/agent-ecosystem && python3 scripts/launch.py --status 2>&1 | head -5 || true",
+            "command": "[ \"$PWD\" = \"/Users/petergirgis/map-hq\" ] && cd /Users/petergirgis/map-hq && python3 scripts/launch.py --status 2>&1 | head -5 || true",
             "statusMessage": "Running health check...",
             "timeout": 30
           }
@@ -29,17 +29,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cp /Users/petergirgis/agent-ecosystem/CLAUDE.md \"/Users/petergirgis/Desktop/claude md backup/CLAUDE_$(date +%Y%m%d_%H%M%S).md\" && echo '{\"systemMessage\": \"✅ CLAUDE.md backed up to Desktop/claude md backup\"}' || true",
+            "command": "cp /Users/petergirgis/map-hq/CLAUDE.md \"/Users/petergirgis/Desktop/claude md backup/CLAUDE_$(date +%Y%m%d_%H%M%S).md\" && echo '{\"systemMessage\": \"✅ CLAUDE.md backed up to Desktop/claude md backup\"}' || true",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "cd /Users/petergirgis/agent-ecosystem && git status --porcelain CLAUDE.md 2>/dev/null | grep -q . && echo '{\"systemMessage\": \"⚠️  CLAUDE.md has uncommitted changes — make sure it reflects all code changes made this session before committing.\"}' || true",
+            "command": "cd /Users/petergirgis/map-hq && git status --porcelain CLAUDE.md 2>/dev/null | grep -q . && echo '{\"systemMessage\": \"⚠️  CLAUDE.md has uncommitted changes — make sure it reflects all code changes made this session before committing.\"}' || true",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "cd /Users/petergirgis/agent-ecosystem && git status --porcelain agents/ utils/ web/ scripts/ monitor/ .claude/ 2>/dev/null | grep -q . && echo '{\"systemMessage\": \"REMINDER: Uncommitted code changes — run: git add -A && git commit && git push\"}' || true",
+            "command": "cd /Users/petergirgis/map-hq && git status --porcelain agents/ utils/ web/ scripts/ monitor/ .claude/ 2>/dev/null | grep -q . && echo '{\"systemMessage\": \"REMINDER: Uncommitted code changes — run: git add -A && git commit && git push\"}' || true",
             "timeout": 10
           }
         ]

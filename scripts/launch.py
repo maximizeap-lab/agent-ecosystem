@@ -25,7 +25,7 @@ LOG_TAIL = 10  # number of recent log lines to show in --status
 
 
 def show_status() -> None:
-    console.print(Rule("[bold cyan]Agent Ecosystem Status[/bold cyan]"))
+    console.print(Rule("[bold cyan]MAP HQ Status[/bold cyan]"))
     console.print()
 
     # API health check
@@ -144,7 +144,7 @@ def main() -> None:
 
     goal = sys.argv[1]
 
-    console.print(Rule("[bold cyan]Multi-Agent Ecosystem[/bold cyan]"))
+    console.print(Rule("[bold cyan]MAP HQ[/bold cyan]"))
     console.print()
     console.print(
         Panel(

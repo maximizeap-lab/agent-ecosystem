@@ -1,5 +1,5 @@
 """
-utils/memory.py — Persistent memory store for the agent ecosystem.
+utils/memory.py — Persistent memory store for the MAP HQ.
 
 Agents remember:
 - Past goals and their subtask breakdowns (for pattern reuse)

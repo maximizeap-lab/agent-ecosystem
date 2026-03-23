@@ -1,5 +1,5 @@
 """
-web/app.py — FastAPI web server for the agent ecosystem.
+web/app.py — FastAPI web server for the MAP HQ.
 
 Endpoints:
   GET  /                   → dashboard UI
@@ -40,7 +40,7 @@ from pydantic import BaseModel
 
 from utils.memory import get_all_runs, get_run, init_db, get_analytics
 
-app = FastAPI(title="Agent Ecosystem")
+app = FastAPI(title="MAP HQ")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 ARTIFACTS_DIR = Path(__file__).resolve().parent.parent / "runs" / "artifacts"
 
@@ -268,5 +268,5 @@ async def status():
 
 if __name__ == "__main__":
     import uvicorn
-    print("Starting Agent Ecosystem Web UI at http://localhost:8000")
+    print("Starting MAP HQ Web UI at http://localhost:8000")
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="warning")

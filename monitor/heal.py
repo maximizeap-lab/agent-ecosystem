@@ -1,5 +1,5 @@
 """
-monitor/heal.py  —  Self-healing daemon for the agent ecosystem.
+monitor/heal.py  —  Self-healing daemon for the MAP HQ.
 
 Features
 --------
@@ -107,14 +107,14 @@ def check_api_health() -> bool:
         msg = f"API health check FAILED — authentication error: {exc}"
         logger.error(msg)
         _log("error", msg)
-        _notify("⚠️ Agent Ecosystem", "API authentication failed — check your API key")
+        _notify("⚠️ MAP HQ", "API authentication failed — check your API key")
         return False
 
     except Exception as exc:
         msg = f"API health check FAILED — {type(exc).__name__}: {exc}"
         logger.error(msg)
         _log("error", msg)
-        _notify("⚠️ Agent Ecosystem", f"API unreachable: {type(exc).__name__}")
+        _notify("⚠️ MAP HQ", f"API unreachable: {type(exc).__name__}")
         return False
 
 
@@ -173,7 +173,7 @@ def _check_alert_threshold(task: str) -> None:
                   border_style="red")
         )
         _log("critical", alert)
-        _notify("🔴 Agent Ecosystem — Critical", f"Task failed {count}x: {task[:60]}")
+        _notify("🔴 MAP HQ — Critical", f"Task failed {count}x: {task[:60]}")
 
 
 # ── Goal Run (optional) ───────────────────────────────────────────────────────
@@ -257,7 +257,7 @@ def daemon_loop(goal: "str | None") -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Self-healing monitor daemon for the agent ecosystem."
+        description="Self-healing monitor daemon for the MAP HQ."
     )
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--daemon", action="store_true",
@@ -268,7 +268,7 @@ def main() -> None:
                         help="Optional goal to run through the ecosystem on startup.")
     args = parser.parse_args()
 
-    console.print(Rule("[bold cyan]Agent Ecosystem Monitor[/bold cyan]"))
+    console.print(Rule("[bold cyan]MAP HQ Monitor[/bold cyan]"))
 
     if args.once:
         check_api_health()

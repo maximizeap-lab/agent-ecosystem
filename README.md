@@ -1,4 +1,4 @@
-# ⚡ Agent Ecosystem
+# ⚡ MAP HQ
 
 A world-class multi-agent orchestration framework built on the Anthropic Claude API. Decomposes any goal into parallel subtasks, routes each to the most efficient model (local or cloud), and synthesises a final response — automatically, with full cost tracking and self-healing.
 
@@ -60,8 +60,8 @@ A world-class multi-agent orchestration framework built on the Anthropic Claude 
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/maximizeap-lab/agent-ecosystem
-cd agent-ecosystem
+git clone https://github.com/maximizeap-lab/map-hq
+cd map-hq
 pip install -r requirements.txt
 
 # 2. Set your API key
