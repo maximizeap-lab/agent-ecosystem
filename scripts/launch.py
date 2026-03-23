@@ -36,12 +36,12 @@ def show_status() -> None:
     else:
         try:
             client = anthropic.Anthropic(api_key=api_key)
-            client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=8,
-                messages=[{"role": "user", "content": "ping"}],
-            )
-            console.print("[green]✓ API reachable — credits available[/green]")
+            try:
+                client.models.list()  # free GET — no tokens spent
+            except AttributeError:
+                client.messages.create(model="claude-haiku-4-5-20251001", max_tokens=1,
+                                       messages=[{"role": "user", "content": "ping"}])
+            console.print("[green]✓ API reachable — credentials valid[/green]")
         except anthropic.AuthenticationError:
             console.print("[red]✗ API unreachable — authentication error[/red]")
         except Exception as exc:

@@ -1,3 +1,4 @@
+import ast as _ast
 import os
 from typing import Any
 
@@ -98,7 +99,7 @@ class Maya:
 
         return _call()
 
-    def stream(self, messages: list[dict[str, Any]]) -> "tuple[str, int, int]":
+    def stream(self, messages: list[dict[str, Any]], stream_callback=None) -> "tuple[str, int, int]":
         """Stream a response to the terminal and return (full_text, input_tokens, output_tokens)."""
         full_text = ""
         input_tokens = output_tokens = 0
@@ -115,6 +116,11 @@ class Maya:
             for text in s.text_stream:
                 _console.print(text, end="", markup=False)
                 full_text += text
+                if stream_callback:
+                    try:
+                        stream_callback(text)
+                    except Exception:
+                        pass
             usage = s.get_final_message().usage
             input_tokens = usage.input_tokens
             output_tokens = usage.output_tokens
@@ -269,7 +275,10 @@ def _dispatch_tool(name: str, inputs: dict) -> str:
     _ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
     if name == "write_file":
-        path = _ARTIFACTS_DIR / inputs["filename"]
+        # Fix: prevent path traversal (e.g. filename="../../.env")
+        path = (_ARTIFACTS_DIR / inputs["filename"]).resolve()
+        if not str(path).startswith(str(_ARTIFACTS_DIR.resolve())):
+            return "Error: path traversal not allowed — filename must stay within the artifacts directory"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(inputs["content"])
         logger.success(f"Tool write_file → {path}")
@@ -308,14 +317,42 @@ def _tool_web_search(query: str, max_results: int = 5) -> str:
         return f"Search failed: {exc}"
 
 
+_BLOCKED_IMPORTS  = frozenset({"os", "subprocess", "shutil", "sys", "socket", "pty", "ctypes"})
+_BLOCKED_BUILTINS = frozenset({"exec", "eval", "compile", "__import__"})
+
+
+def _check_code_safety(code: str) -> "str | None":
+    """AST-based safety check — returns error string if unsafe, None if safe.
+    Significantly harder to bypass than string matching."""
+    try:
+        tree = _ast.parse(code)
+    except SyntaxError as exc:
+        return f"syntax error: {exc}"
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Import):
+            for alias in node.names:
+                if alias.name.split(".")[0] in _BLOCKED_IMPORTS:
+                    return f"blocked import '{alias.name}'"
+        elif isinstance(node, _ast.ImportFrom):
+            if (node.module or "").split(".")[0] in _BLOCKED_IMPORTS:
+                return f"blocked import 'from {node.module}'"
+        elif isinstance(node, _ast.Call):
+            if isinstance(node.func, _ast.Name) and node.func.id in _BLOCKED_BUILTINS:
+                return f"blocked call '{node.func.id}()'"
+            # Block __builtins__['exec'] subscript bypass
+            if (isinstance(node.func, _ast.Subscript) and
+                    isinstance(node.func.value, _ast.Name) and
+                    node.func.value.id == "__builtins__"):
+                return "blocked: __builtins__ subscript access"
+    return None
+
+
 def _tool_run_code(code: str) -> str:
     import subprocess
     import tempfile
-    # Block dangerous patterns before execution
-    _BLOCKED = ["os.system", "subprocess", "shutil.rmtree", "__import__('os')", "open('/", "eval(", "exec("]
-    for pattern in _BLOCKED:
-        if pattern in code:
-            return f"Error: blocked pattern '{pattern}' — run_code is for data processing only, not system commands."
+    err = _check_code_safety(code)
+    if err:
+        return f"Error: {err} — run_code is for data processing only, not system commands."
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
             result = subprocess.run(

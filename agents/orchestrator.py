@@ -49,6 +49,7 @@ class Chloe(Maya):
         super().__init__(**kwargs)
         self._aria_model = "claude-sonnet-4-6"
         self._aria_max_retries = self.max_retries
+        self.stream_callback = None  # set externally (e.g. web SSE) to receive Aria chunks in real-time
 
     # ------------------------------------------------------------------
     # Public API
@@ -67,6 +68,12 @@ class Chloe(Maya):
         summary = self._synthesise(goal, worker_results)
         logger.orchestrator("Synthesis complete.")
 
+        # Fix 9: feedback loop — verify goal is met, retry synthesis once if not
+        if not self._evaluate(goal, summary):
+            logger.orchestrator("Evaluation: goal not fully met — retrying synthesis with directive prompt…")
+            summary = self._synthesise(goal, worker_results, is_retry=True)
+            logger.orchestrator("Retry synthesis complete.")
+
         from utils.memory import save_run as mem_save
         _duration_so_far = round(time.time() - _started, 2)
         mem_save(goal, subtasks, summary, duration_seconds=_duration_so_far)
@@ -77,6 +84,16 @@ class Chloe(Maya):
         total_cost = round(sum(r.cost_usd for r in worker_results) + aria_cost, 6)
         duration = round(time.time() - _started, 2)
         logger.orchestrator(f"Done in {duration}s — {total_in}in/{total_out}out tokens — est. ${total_cost:.5f}")
+
+        # Fix 7: cost spike alert — notify if run exceeds threshold
+        _COST_ALERT_USD = 0.10
+        if total_cost > _COST_ALERT_USD:
+            logger.warning(f"Cost alert: ${total_cost:.4f} exceeds ${_COST_ALERT_USD} threshold")
+            try:
+                from monitor.heal import _notify
+                _notify("💰 Agent Ecosystem", f"High-cost run: ${total_cost:.4f} — {goal[:50]}")
+            except Exception:
+                pass
 
         return ChloeResult(
             goal=goal,
@@ -176,11 +193,41 @@ class Chloe(Maya):
                             task=subtasks[idx], result="[ERROR: worker timed out]", model_used="failed"
                         )
 
-        return [r for r in results if r is not None]
+        final = [r for r in results if r is not None]
 
-    def _synthesise(self, goal: str, worker_results: list[WorkerResult]) -> str:
+        # Fix 5: retry failed/thin workers with context from successful peers
+        successful = [r for r in final if not r.result.startswith("[ERROR:") and len(r.result.strip()) >= 50]
+        needs_retry = [(i, r) for i, r in enumerate(final) if r.result.startswith("[ERROR:") or len(r.result.strip()) < 50]
+        if needs_retry and successful:
+            context_block = "\n\n".join(f"[{r.task[:80]}]:\n{r.result[:600]}" for r in successful)
+            logger.orchestrator(f"Retrying {len(needs_retry)} failed worker(s) with peer context…")
+            for idx, failed_r in needs_retry:
+                enriched = f"{failed_r.task}\n\n[Context from completed tasks — use if relevant]\n{context_block}"
+                worker = Nova(max_retries=1, ollama_up=ollama_up)
+                try:
+                    final[idx] = worker.execute(enriched)
+                    logger.orchestrator(f"Context-retry succeeded: {failed_r.task[:60]}")
+                except Exception as exc:
+                    logger.error(f"Context-retry also failed ({exc}): {failed_r.task[:60]}")
+
+        return final
+
+    def _evaluate(self, goal: str, summary: str) -> bool:
+        """Ask Haiku if the summary actually addresses the goal. Returns True if satisfied."""
+        prompt = (
+            f"Goal: {goal}\n\n"
+            f"Delivered output (excerpt): {summary[:1000]}\n\n"
+            "Does this output directly and completely address the goal? Reply YES or NO only."
+        )
+        try:
+            answer = self.run([{"role": "user", "content": prompt}])
+            return answer.strip().upper().startswith("YES")
+        except Exception:
+            return True  # on failure, assume OK rather than loop forever
+
+    def _synthesise(self, goal: str, worker_results: list[WorkerResult], is_retry: bool = False) -> str:
         """Combine all worker outputs into a streamed final summary."""
-        MAX_CHARS = 2000
+        MAX_CHARS = 6000  # was 2000 — rich outputs (code, analysis) no longer truncated
         findings_parts = []
         failed_tasks = []
         for r in worker_results:
@@ -200,10 +247,15 @@ class Chloe(Maya):
             "Please synthesise the above into a final, cohesive response."
         )
         # Build Aria with goal-aware system prompt for better synthesis quality
+        retry_note = (
+            "\n\nIMPORTANT: A previous synthesis attempt did not fully address the goal. "
+            "This is your second attempt — be more thorough, specific, and directly answer every aspect of the goal."
+            if is_retry else ""
+        )
         goal_aware_prompt = (
             f"{SYNTHESISER_SYSTEM_PROMPT}\n\n"
             f"The user's original goal is: {goal}\n"
-            "Tailor your synthesis to directly and completely address this goal."
+            f"Tailor your synthesis to directly and completely address this goal.{retry_note}"
         )
         aria = Maya(
             model=self._aria_model,
@@ -212,7 +264,8 @@ class Chloe(Maya):
         )
         messages = [{"role": "user", "content": prompt}]
         logger.orchestrator("Streaming synthesis…")
-        text, aria_in, aria_out = aria.stream(messages)
+        # Fix 4: pass stream_callback so web UI receives Aria chunks in real-time
+        text, aria_in, aria_out = aria.stream(messages, stream_callback=self.stream_callback)
         aria_cost = estimate_cost(self._aria_model, aria_in, aria_out)
         logger.orchestrator(f"Aria tokens: {aria_in}in/{aria_out}out — ${aria_cost:.5f}")
         self._aria_usage = (aria_in, aria_out, aria_cost)

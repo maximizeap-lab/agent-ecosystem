@@ -146,6 +146,7 @@
     .ev-start        { color: #fbd38d; background: rgba(237,137,54,0.08); }
     .ev-info         { color: #a0aec0; }
     .ev-summary      { color: #e2e8f0; background: #1a2744; border-left: 3px solid #63b3ed; padding: 12px; white-space: pre-wrap; font-family: inherit; font-size: 0.85rem; line-height: 1.6; }
+    .ev-synthesis    { color: #e2e8f0; background: #1a2744; border-left: 3px solid #9f7aea; padding: 12px; white-space: pre-wrap; font-family: inherit; font-size: 0.85rem; line-height: 1.6; }
 
     /* Code viewer */
     #code-viewer { background: #0f1117; border-radius: 8px; padding: 20px; }
@@ -275,9 +276,31 @@
       currentSource.addEventListener(ev, e => addFeedItem(ev, JSON.parse(e.data)));
     });
 
+    // Fix 4: stream Aria's synthesis chunks live into both the feed and summary view
+    let synthesisEl = null;
+    currentSource.addEventListener('synthesis', e => {
+      const chunk = JSON.parse(e.data);
+      if (!synthesisEl) {
+        synthesisEl = document.createElement('li');
+        synthesisEl.className = 'ev-synthesis';
+        const label = document.createElement('span');
+        label.style.cssText = 'font-size:0.7rem;color:#9f7aea;display:block;margin-bottom:4px';
+        label.textContent = '✦ Aria synthesising…';
+        synthesisEl.appendChild(label);
+        document.getElementById('feed').appendChild(synthesisEl);
+        // Switch to Summary tab to show streaming output
+        switchMainTab('summary', document.querySelector('.main-tabs button:nth-child(2)'));
+      }
+      synthesisEl.textContent = (synthesisEl.textContent || '') + chunk;
+      synthesisEl.scrollIntoView({ behavior: 'smooth' });
+      document.getElementById('summary-view').textContent =
+        (document.getElementById('summary-view').textContent || '') + chunk;
+    });
+
     currentSource.addEventListener('summary', e => {
       const text = JSON.parse(e.data);
-      document.getElementById('summary-view').textContent = text;
+      // Only overwrite if we didn't already stream it chunk-by-chunk
+      if (!synthesisEl) document.getElementById('summary-view').textContent = text;
     });
 
     currentSource.addEventListener('done', e => {

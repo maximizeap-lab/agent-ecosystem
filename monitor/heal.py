@@ -91,12 +91,14 @@ def check_api_health() -> bool:
 
     try:
         client = anthropic.Anthropic(api_key=api_key)
-        client.messages.create(
-            model="claude-haiku-4-5-20251001",   # cheapest model for the ping
-            max_tokens=8,
-            messages=[{"role": "user", "content": "ping"}],
-        )
-        msg = "API health check PASSED — reachable and credits available."
+        # Fix 8: models.list() is a free GET — verifies auth without spending tokens
+        try:
+            client.models.list()
+        except AttributeError:
+            # Older SDK fallback — use minimal generation call
+            client.messages.create(model="claude-haiku-4-5-20251001", max_tokens=1,
+                                   messages=[{"role": "user", "content": "ping"}])
+        msg = "API health check PASSED — reachable and credentials valid."
         logger.success(msg)
         _log("info", msg)
         return True

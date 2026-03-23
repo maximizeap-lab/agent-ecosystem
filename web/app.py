@@ -146,6 +146,8 @@ def _run_goal(run_id: str, goal: str) -> None:
 
         _emit(run_id, "start", f"Starting: {goal}")
         orchestrator = Chloe()
+        # Fix 4: stream Aria's synthesis chunks to SSE in real-time
+        orchestrator.stream_callback = lambda chunk: _emit(run_id, "synthesis", chunk)
         result = orchestrator.execute(goal)
         save_run(result)
         _emit(run_id, "summary", result.summary)
@@ -237,13 +239,13 @@ async def status():
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     try:
         client = anthropic.Anthropic(api_key=api_key)
-        client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=8,
-            messages=[{"role": "user", "content": "ping"}],
-        )
+        try:
+            client.models.list()  # free GET — verifies auth without spending tokens
+        except AttributeError:
+            client.messages.create(model="claude-haiku-4-5-20251001", max_tokens=1,
+                                   messages=[{"role": "user", "content": "ping"}])
         api_ok = True
-    except Exception as exc:
+    except Exception:
         api_ok = False
 
     try:
