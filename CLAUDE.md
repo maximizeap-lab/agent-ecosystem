@@ -208,13 +208,17 @@ agent-ecosystem/
 3. **Prompt caching** — Anthropic system prompts cached (ephemeral, 5 min) to reduce input tokens
 4. **Token caps** — Workers capped at 1500 tokens to stay within rate limits
 5. **Partial results** — Failed workers save `[ERROR]` result, run continues without crashing
-6. **Parallel workers** — 2 concurrent workers (limited by Tier 1; increase `max_workers` in orchestrator.py when on Tier 2)
+6. **Dynamic worker pool** — Local tasks run at up to 5 concurrent; API tasks capped at 2 (rate limit); pool size auto-calculated per run
 7. **Batch API** — For non-urgent runs: no rate limits, 50% cost reduction
 8. **Goal-aware synthesis** — Aria receives the original goal in her system prompt for better output
 9. **Persistent specialist cache** — bus.py caches specialist answers in SQLite across sessions
 10. **Luna tool support** — OpenAI function-call format tools for Ollama models (write_file, read_file, web_search, run_code); phi3.5 and llama3.2 excluded as they don't support tool calls
 11. **Quality gate** — Chloe scans worker results for errors/thin output and flags them to Aria
 12. **Full cost visibility** — Aria (Sonnet) token usage tracked via stream(), included in run totals
+13. **Single Ollama health check** — `ollama_available()` called once per run in Chloe, passed to all workers (not per-worker)
+14. **Persistent classification cache** — task→category mapping stored in SQLite; survives process restarts (backed by lru_cache in-process)
+15. **Worker timeout** — hung workers (e.g. stalled Ollama) killed after 120s/worker; run continues with error result
+16. **Safe message handling** — `run_with_usage()` works on a copy of the messages list; caller's list never mutated
 
 ## Security
 
