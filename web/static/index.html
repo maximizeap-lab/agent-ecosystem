@@ -165,6 +165,15 @@
 
     .empty { text-align: center; color: #718096; font-size: 0.85rem; padding: 40px 0; }
 
+    /* HR & Legal panel */
+    .compliance-section { background: #111827; border-radius: 10px; padding: 20px; margin-bottom: 16px; border: 1px solid #2d3748; }
+    .compliance-section h3 { font-size: 0.9rem; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    .compliance-section .body { font-size: 0.85rem; line-height: 1.7; white-space: pre-wrap; color: #e2e8f0; }
+    .hr-header  { color: #68d391; }
+    .leg-header { color: #63b3ed; }
+    .concern    { color: #f6ad55; }
+    .all-clear  { color: #68d391; }
+
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #4a5568; border-radius: 3px; }
@@ -204,6 +213,7 @@
       <button onclick="switchMainTab('code', this)">File Viewer</button>
       <button onclick="switchMainTab('status', this)">Status</button>
       <button onclick="switchMainTab('analytics', this)">Analytics</button>
+      <button onclick="switchMainTab('compliance', this)">HR &amp; Legal</button>
     </div>
 
     <div class="main-content">
@@ -226,6 +236,10 @@
 
       <div id="panel-analytics" class="main-panel">
         <div id="analytics-view" class="empty">Loading…</div>
+      </div>
+
+      <div id="panel-compliance" class="main-panel">
+        <div id="compliance-view" class="empty">HR &amp; Legal review will appear here after each run.</div>
       </div>
     </div>
   </main>
@@ -303,6 +317,13 @@
       if (!synthesisEl) document.getElementById('summary-view').textContent = text;
     });
 
+    currentSource.addEventListener('compliance', e => {
+      const text = JSON.parse(e.data);
+      renderCompliance(text);
+      // Flash the HR & Legal tab to signal it has new content
+      document.querySelector('.main-tabs button:last-child').style.color = '#68d391';
+    });
+
     currentSource.addEventListener('done', e => {
       addFeedItem('success', '✓ ' + JSON.parse(e.data));
       document.getElementById('run-btn').disabled = false;
@@ -348,6 +369,7 @@
     const res = await fetch('/runs/' + id);
     const run = await res.json();
     document.getElementById('summary-view').textContent = run.summary;
+    if (run.hr_legal_review) renderCompliance(run.hr_legal_review);
     switchMainTab('summary', document.querySelector('.main-tabs button:nth-child(2)'));
   }
 
@@ -441,6 +463,28 @@
             <tbody>${costRows || '<tr><td colspan="2" style="text-align:center;color:#718096;padding:16px">No data yet</td></tr>'}</tbody>
           </table>
         </div>
+      </div>
+    `;
+  }
+
+  // ── HR & Legal compliance panel ──────────────────────────────────────────────
+  function renderCompliance(text) {
+    if (!text) return;
+    const parts = text.split('\n\n**Legal Department:**\n');
+    const hrText   = parts[0].replace('**HR Department:**\n', '').trim();
+    const legalText = (parts[1] || '').trim();
+
+    const hrAllClear    = hrText.toLowerCase().includes('no hr concerns');
+    const legalAllClear = legalText.toLowerCase().includes('no legal concerns');
+
+    document.getElementById('compliance-view').innerHTML = `
+      <div class="compliance-section">
+        <h3 class="hr-header">👥 HR Department</h3>
+        <div class="body ${hrAllClear ? 'all-clear' : 'concern'}">${escapeHtml(hrText)}</div>
+      </div>
+      <div class="compliance-section">
+        <h3 class="leg-header">⚖️ Legal Department</h3>
+        <div class="body ${legalAllClear ? 'all-clear' : 'concern'}">${escapeHtml(legalText)}</div>
       </div>
     `;
   }

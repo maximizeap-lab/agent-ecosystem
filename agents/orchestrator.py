@@ -33,6 +33,7 @@ class ChloeResult(BaseModel):
     subtasks: list[str]
     worker_results: list[WorkerResult]
     summary: str
+    hr_legal_review: str = ""
     total_input_tokens: int = 0
     total_output_tokens: int = 0
     total_cost_usd: float = 0.0
@@ -65,13 +66,22 @@ class Chloe(Maya):
 
         worker_results = self._dispatch(subtasks)
 
-        summary = self._synthesise(goal, worker_results)
+        # HR & Legal compliance review — runs concurrently, results injected into synthesis
+        hr_legal_review = ""
+        try:
+            logger.orchestrator("Running HR & Legal compliance review…")
+            hr_legal_review = self._review(goal, worker_results)
+            logger.orchestrator("HR & Legal review complete.")
+        except Exception as exc:
+            logger.warning(f"HR & Legal review skipped: {exc}")
+
+        summary = self._synthesise(goal, worker_results, review_notes=hr_legal_review)
         logger.orchestrator("Synthesis complete.")
 
         # Fix 9: feedback loop — verify goal is met, retry synthesis once if not
         if not self._evaluate(goal, summary):
             logger.orchestrator("Evaluation: goal not fully met — retrying synthesis with directive prompt…")
-            summary = self._synthesise(goal, worker_results, is_retry=True)
+            summary = self._synthesise(goal, worker_results, review_notes=hr_legal_review, is_retry=True)
             logger.orchestrator("Retry synthesis complete.")
 
         from utils.memory import save_run as mem_save
@@ -100,6 +110,7 @@ class Chloe(Maya):
             subtasks=subtasks,
             worker_results=worker_results,
             summary=summary,
+            hr_legal_review=hr_legal_review,
             total_input_tokens=total_in,
             total_output_tokens=total_out,
             total_cost_usd=total_cost,
@@ -212,6 +223,44 @@ class Chloe(Maya):
 
         return final
 
+    def _review(self, goal: str, worker_results: list[WorkerResult]) -> str:
+        """Run HR and Legal compliance review concurrently on worker outputs.
+        Results are cached in SQLite — identical goal/outputs don't re-call the API."""
+        from concurrent.futures import ThreadPoolExecutor
+        from utils.bus import bus
+
+        # Summarise work outputs concisely for review (keep prompts lean for Haiku)
+        work_summary = f"Goal: {goal}\n\n" + "\n\n".join(
+            f"Task: {r.task}\nOutput: {r.result[:500]}"
+            for r in worker_results[:6]
+        )
+
+        hr_question = (
+            f"Review the following work and outputs for HR compliance and people impact. "
+            f"Flag any specific concerns about fairness, bias, discrimination, data privacy, "
+            f"or employee rights. If no concerns, say 'No HR concerns identified.'\n\n{work_summary}"
+        )
+        legal_question = (
+            f"Review the following work and outputs for legal compliance and liability. "
+            f"Flag any specific concerns about data privacy law (GDPR/CCPA), intellectual property, "
+            f"regulatory compliance, or legal risk. If no concerns, say 'No legal concerns identified.'\n\n{work_summary}"
+        )
+
+        hr_result = legal_result = ""
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            hr_future   = pool.submit(bus.ask, hr_question,    "hr")
+            legal_future = pool.submit(bus.ask, legal_question, "legal")
+            try:
+                hr_result = hr_future.result(timeout=45)
+            except Exception as exc:
+                hr_result = f"HR review unavailable: {exc}"
+            try:
+                legal_result = legal_future.result(timeout=45)
+            except Exception as exc:
+                legal_result = f"Legal review unavailable: {exc}"
+
+        return f"**HR Department:**\n{hr_result}\n\n**Legal Department:**\n{legal_result}"
+
     def _evaluate(self, goal: str, summary: str) -> bool:
         """Ask Haiku if the summary actually addresses the goal. Returns True if satisfied."""
         prompt = (
@@ -225,7 +274,8 @@ class Chloe(Maya):
         except Exception:
             return True  # on failure, assume OK rather than loop forever
 
-    def _synthesise(self, goal: str, worker_results: list[WorkerResult], is_retry: bool = False) -> str:
+    def _synthesise(self, goal: str, worker_results: list[WorkerResult],
+                    review_notes: str = "", is_retry: bool = False) -> str:
         """Combine all worker outputs into a streamed final summary."""
         MAX_CHARS = 6000  # was 2000 — rich outputs (code, analysis) no longer truncated
         findings_parts = []
@@ -241,9 +291,15 @@ class Chloe(Maya):
         if failed_tasks:
             logger.warning(f"Quality gate: {len(failed_tasks)} unreliable result(s): {failed_tasks}")
         findings_text = "\n\n".join(findings_parts)
+        compliance_section = (
+            f"\n\n[HR & Legal Compliance Review]\n{review_notes}\n\n"
+            "Where the compliance review flags real concerns, briefly acknowledge them in your synthesis."
+            if review_notes else ""
+        )
         prompt = (
             f"Original goal: {goal}\n\n"
-            f"Worker findings:\n{findings_text}\n\n"
+            f"Worker findings:\n{findings_text}"
+            f"{compliance_section}\n\n"
             "Please synthesise the above into a final, cohesive response."
         )
         # Build Aria with goal-aware system prompt for better synthesis quality

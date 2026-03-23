@@ -151,6 +151,8 @@ def _run_goal(run_id: str, goal: str) -> None:
         result = orchestrator.execute(goal)
         save_run(result)
         _emit(run_id, "summary", result.summary)
+        if result.hr_legal_review:
+            _emit(run_id, "compliance", result.hr_legal_review)
         _emit(run_id, "done", f"Completed with {len(result.subtasks)} subtasks")
     except Exception as exc:
         _emit(run_id, "error", str(exc))

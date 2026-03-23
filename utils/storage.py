@@ -28,6 +28,7 @@ def save_run(result) -> Path:
             for r in result.worker_results
         ],
         "summary": result.summary,
+        "hr_legal_review": getattr(result, "hr_legal_review", ""),
         "total_input_tokens": getattr(result, "total_input_tokens", 0),
         "total_output_tokens": getattr(result, "total_output_tokens", 0),
         "total_cost_usd": getattr(result, "total_cost_usd", 0.0),

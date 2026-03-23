@@ -190,13 +190,13 @@ WORKER_TOOLS = [
         "name": "ask_specialist",
         "description": (
             "Consult a specialist agent for expert advice mid-task. "
-            "Specialists: security, architecture, database, devops, frontend, performance."
+            "Specialists: security, architecture, database, devops, frontend, performance, hr, legal."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "question":   {"type": "string", "description": "Question for the specialist"},
-                "specialist": {"type": "string", "description": "Specialist type: security | architecture | database | devops | frontend | performance"},
+                "specialist": {"type": "string", "description": "Specialist type: security | architecture | database | devops | frontend | performance | hr | legal"},
             },
             "required": ["question", "specialist"],
         },
