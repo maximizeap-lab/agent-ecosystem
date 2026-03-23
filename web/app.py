@@ -50,11 +50,18 @@ from fastapi import FastAPI, HTTPException, Depends, Query, Header
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from utils.memory import get_all_runs, get_run, init_db, get_analytics
 
 app = FastAPI(title="MAP HQ")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+)
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 ARTIFACTS_DIR = Path(__file__).resolve().parent.parent / "runs" / "artifacts"
 

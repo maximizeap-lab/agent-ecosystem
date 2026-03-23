@@ -7,3 +7,4 @@ runs/*.json
 logs/
 *.log
 .DS_Store
+.vercel
