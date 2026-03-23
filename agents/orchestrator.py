@@ -4,8 +4,9 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from agents.base import BaseAgent
-from agents.worker import WorkerAgent, WorkerResult
+import time
+from agents.base import Maya, estimate_cost
+from agents.worker import Nova, WorkerResult
 from utils import logger
 
 ORCHESTRATOR_SYSTEM_PROMPT = """\
@@ -27,14 +28,18 @@ that directly addresses the original goal. Write in clear, professional prose.\
 """
 
 
-class OrchestratorResult(BaseModel):
+class ChloeResult(BaseModel):
     goal: str
     subtasks: list[str]
     worker_results: list[WorkerResult]
     summary: str
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_cost_usd: float = 0.0
+    duration_seconds: float = 0.0
 
 
-class OrchestratorAgent(BaseAgent):
+class Chloe(Maya):
     """Decomposes a goal into subtasks, delegates to workers, and synthesises results."""
 
     def __init__(self, **kwargs) -> None:
@@ -42,19 +47,16 @@ class OrchestratorAgent(BaseAgent):
         # Use Haiku for planning — only needs to output JSON, not quality prose
         kwargs.setdefault("model", "claude-haiku-4-5-20251001")
         super().__init__(**kwargs)
-        # Synthesis uses Sonnet — highest quality final output
-        self._synthesiser = BaseAgent(
-            model="claude-sonnet-4-6",
-            system_prompt=SYNTHESISER_SYSTEM_PROMPT,
-            max_retries=self.max_retries,
-        )
+        self._aria_model = "claude-sonnet-4-6"
+        self._aria_max_retries = self.max_retries
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def execute(self, goal: str) -> OrchestratorResult:
+    def execute(self, goal: str) -> ChloeResult:
         """Orchestrate workers to accomplish *goal* and return a full result."""
+        _started = time.time()
         logger.orchestrator(f"Goal received: {goal}")
 
         subtasks = self._plan(goal)
@@ -66,13 +68,25 @@ class OrchestratorAgent(BaseAgent):
         logger.orchestrator("Synthesis complete.")
 
         from utils.memory import save_run as mem_save
-        mem_save(goal, subtasks, summary)
+        _duration_so_far = round(time.time() - _started, 2)
+        mem_save(goal, subtasks, summary, duration_seconds=_duration_so_far)
 
-        return OrchestratorResult(
+        aria_in, aria_out, aria_cost = getattr(self, "_aria_usage", (0, 0, 0.0))
+        total_in = sum(r.input_tokens for r in worker_results) + aria_in
+        total_out = sum(r.output_tokens for r in worker_results) + aria_out
+        total_cost = round(sum(r.cost_usd for r in worker_results) + aria_cost, 6)
+        duration = round(time.time() - _started, 2)
+        logger.orchestrator(f"Done in {duration}s — {total_in}in/{total_out}out tokens — est. ${total_cost:.5f}")
+
+        return ChloeResult(
             goal=goal,
             subtasks=subtasks,
             worker_results=worker_results,
             summary=summary,
+            total_input_tokens=total_in,
+            total_output_tokens=total_out,
+            total_cost_usd=total_cost,
+            duration_seconds=duration,
         )
 
     # ------------------------------------------------------------------
@@ -122,8 +136,14 @@ class OrchestratorAgent(BaseAgent):
         results: list[WorkerResult | None] = [None] * total
 
         def _run(index: int, task: str) -> tuple[int, WorkerResult]:
-            worker = WorkerAgent(model=self.model, max_retries=self.max_retries)
-            return index, worker.execute(task)
+            worker = Nova(max_retries=self.max_retries)
+            try:
+                return index, worker.execute(task)
+            except Exception as exc:
+                logger.error(f"Worker failed for task '{task[:60]}': {exc}")
+                from utils.memory import record_model_failure
+                record_model_failure(task[:80], "unknown")
+                return index, WorkerResult(task=task, result=f"[ERROR: {exc}]", model_used="failed")
 
         with ThreadPoolExecutor(max_workers=min(total, 2)) as pool:
             futures = {pool.submit(_run, i, task): i for i, task in enumerate(subtasks)}
@@ -138,17 +158,40 @@ class OrchestratorAgent(BaseAgent):
 
     def _synthesise(self, goal: str, worker_results: list[WorkerResult]) -> str:
         """Combine all worker outputs into a streamed final summary."""
-        # Truncate each result to keep synthesis prompt within token limits
-        MAX_CHARS = 300
-        findings_text = "\n\n".join(
-            f"### Subtask: {r.task}\n{r.result[:MAX_CHARS]}{'…' if len(r.result) > MAX_CHARS else ''}"
-            for r in worker_results
-        )
+        MAX_CHARS = 2000
+        findings_parts = []
+        failed_tasks = []
+        for r in worker_results:
+            is_error = r.result.startswith("[ERROR:")
+            is_thin = len(r.result.strip()) < 50
+            if is_error or is_thin:
+                failed_tasks.append(r.task)
+                findings_parts.append(f"### Subtask: {r.task}\n⚠️ UNRELIABLE — {r.result[:200]}")
+            else:
+                findings_parts.append(f"### Subtask: {r.task}\n{r.result[:MAX_CHARS]}{'…' if len(r.result) > MAX_CHARS else ''}")
+        if failed_tasks:
+            logger.warning(f"Quality gate: {len(failed_tasks)} unreliable result(s): {failed_tasks}")
+        findings_text = "\n\n".join(findings_parts)
         prompt = (
             f"Original goal: {goal}\n\n"
             f"Worker findings:\n{findings_text}\n\n"
             "Please synthesise the above into a final, cohesive response."
         )
+        # Build Aria with goal-aware system prompt for better synthesis quality
+        goal_aware_prompt = (
+            f"{SYNTHESISER_SYSTEM_PROMPT}\n\n"
+            f"The user's original goal is: {goal}\n"
+            "Tailor your synthesis to directly and completely address this goal."
+        )
+        aria = Maya(
+            model=self._aria_model,
+            system_prompt=goal_aware_prompt,
+            max_retries=self._aria_max_retries,
+        )
         messages = [{"role": "user", "content": prompt}]
         logger.orchestrator("Streaming synthesis…")
-        return self._synthesiser.stream(messages)
+        text, aria_in, aria_out = aria.stream(messages)
+        aria_cost = estimate_cost(self._aria_model, aria_in, aria_out)
+        logger.orchestrator(f"Aria tokens: {aria_in}in/{aria_out}out — ${aria_cost:.5f}")
+        self._aria_usage = (aria_in, aria_out, aria_cost)
+        return text

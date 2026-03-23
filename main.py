@@ -6,7 +6,7 @@ from rich.text import Text
 
 load_dotenv()
 
-from agents.orchestrator import OrchestratorAgent  # noqa: E402 — must follow load_dotenv
+from agents.orchestrator import Chloe  # noqa: E402 — must follow load_dotenv
 from utils import logger  # noqa: E402
 
 console = Console()
@@ -30,7 +30,7 @@ def main() -> None:
     )
     console.print()
 
-    orchestrator = OrchestratorAgent()
+    orchestrator = Chloe()
 
     try:
         result = orchestrator.execute(GOAL)

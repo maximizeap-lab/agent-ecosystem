@@ -31,16 +31,29 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-from fastapi import FastAPI, HTTPException
+import secrets
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from utils.memory import get_all_runs, get_run, init_db
+from utils.memory import get_all_runs, get_run, init_db, get_analytics
 
 app = FastAPI(title="Agent Ecosystem")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 ARTIFACTS_DIR = Path(__file__).resolve().parent.parent / "runs" / "artifacts"
+
+_security = HTTPBasic()
+_API_KEY = os.environ.get("DASHBOARD_API_KEY", "")
+
+def _require_auth(credentials: HTTPBasicCredentials = Depends(_security)):
+    """Require HTTP Basic Auth if DASHBOARD_API_KEY is set in .env."""
+    if not _API_KEY:
+        return  # Auth disabled — local dev mode
+    ok = secrets.compare_digest(credentials.password.encode(), _API_KEY.encode())
+    if not ok:
+        raise HTTPException(status_code=401, detail="Unauthorized", headers={"WWW-Authenticate": "Basic"})
 
 # Active run event queues: run_id → Queue of SSE event strings
 _run_queues: "dict[str, queue.Queue]" = {}
@@ -128,11 +141,11 @@ def _run_goal(run_id: str, goal: str) -> None:
         setattr(logger_module, attr, getattr(patched, attr))
 
     try:
-        from agents.orchestrator import OrchestratorAgent
+        from agents.orchestrator import Chloe
         from utils.storage import save_run
 
         _emit(run_id, "start", f"Starting: {goal}")
-        orchestrator = OrchestratorAgent()
+        orchestrator = Chloe()
         result = orchestrator.execute(goal)
         save_run(result)
         _emit(run_id, "summary", result.summary)
@@ -153,7 +166,7 @@ async def index():
 
 
 @app.post("/run")
-async def submit_run(req: GoalRequest):
+async def submit_run(req: GoalRequest, _: None = Depends(_require_auth)):
     run_id = str(uuid.uuid4())[:8]
     with _run_lock:
         _run_queues[run_id] = queue.Queue()
@@ -210,6 +223,12 @@ async def get_artifact(filepath: str):
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="Artifact not found")
     return {"path": filepath, "content": path.read_text(errors="replace")}
+
+
+@app.get("/analytics")
+async def analytics():
+    init_db()
+    return get_analytics()
 
 
 @app.get("/status")

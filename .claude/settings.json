@@ -29,7 +29,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd /Users/petergirgis/agent-ecosystem && git status --porcelain CLAUDE.md agents/ utils/ web/ scripts/ monitor/ .claude/ 2>/dev/null | grep -q . && echo '{\"systemMessage\": \"REMINDER: Uncommitted changes in key project files — run: git add -A && git commit && git push\"}' || true",
+            "command": "cp /Users/petergirgis/agent-ecosystem/CLAUDE.md \"/Users/petergirgis/Desktop/claude md backup/CLAUDE_$(date +%Y%m%d_%H%M%S).md\" && echo '{\"systemMessage\": \"✅ CLAUDE.md backed up to Desktop/claude md backup\"}' || true",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "cd /Users/petergirgis/agent-ecosystem && git status --porcelain CLAUDE.md 2>/dev/null | grep -q . && echo '{\"systemMessage\": \"⚠️  CLAUDE.md has uncommitted changes — make sure it reflects all code changes made this session before committing.\"}' || true",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "cd /Users/petergirgis/agent-ecosystem && git status --porcelain agents/ utils/ web/ scripts/ monitor/ .claude/ 2>/dev/null | grep -q . && echo '{\"systemMessage\": \"REMINDER: Uncommitted code changes — run: git add -A && git commit && git push\"}' || true",
             "timeout": 10
           }
         ]

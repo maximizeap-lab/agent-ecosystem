@@ -38,6 +38,16 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 from utils import logger
 
+
+def _notify(title: str, message: str) -> None:
+    """Send a macOS desktop notification."""
+    try:
+        import subprocess
+        script = f'display notification "{message}" with title "{title}" sound name "Basso"'
+        subprocess.run(["osascript", "-e", script], timeout=5, capture_output=True)
+    except Exception:
+        pass  # Notifications are best-effort — never crash the daemon
+
 # ── Configuration ─────────────────────────────────────────────────────────────
 HEALTH_CHECK_INTERVAL = 86400   # seconds between API health checks (once a day)
 MAX_WORKER_RETRIES    = 3       # retries before a task is marked permanently failed
@@ -95,13 +105,14 @@ def check_api_health() -> bool:
         msg = f"API health check FAILED — authentication error: {exc}"
         logger.error(msg)
         _log("error", msg)
+        _notify("⚠️ Agent Ecosystem", "API authentication failed — check your API key")
         return False
 
     except Exception as exc:
-        # Covers credit errors, connection errors, rate limits, etc.
         msg = f"API health check FAILED — {type(exc).__name__}: {exc}"
         logger.error(msg)
         _log("error", msg)
+        _notify("⚠️ Agent Ecosystem", f"API unreachable: {type(exc).__name__}")
         return False
 
 
@@ -112,11 +123,11 @@ def run_worker_with_retry(task: str) -> "str | None":
     Execute a single worker task with up to MAX_WORKER_RETRIES attempts.
     Logs every failure.  Returns the result string or None on total failure.
     """
-    from agents.worker import WorkerAgent
+    from agents.worker import Nova
 
     for attempt in range(1, MAX_WORKER_RETRIES + 1):
         try:
-            worker = WorkerAgent()
+            worker = Nova()
             result = worker.execute(task)
             msg = f"Worker succeeded on attempt {attempt}/{MAX_WORKER_RETRIES}: {task!r}"
             logger.success(msg)
@@ -160,19 +171,20 @@ def _check_alert_threshold(task: str) -> None:
                   border_style="red")
         )
         _log("critical", alert)
+        _notify("🔴 Agent Ecosystem — Critical", f"Task failed {count}x: {task[:60]}")
 
 
 # ── Goal Run (optional) ───────────────────────────────────────────────────────
 
 def run_goal(goal: str) -> None:
     """Run a full orchestration goal through the ecosystem with healing applied."""
-    from agents.orchestrator import OrchestratorAgent
+    from agents.orchestrator import Chloe
 
     logger.orchestrator(f"Daemon running goal: {goal}")
     _log("info", f"Starting goal run: {goal!r}")
 
     try:
-        orchestrator = OrchestratorAgent()
+        orchestrator = Chloe()
         subtasks = orchestrator._plan(goal)
         logger.orchestrator(f"Planned {len(subtasks)} subtask(s)")
         _log("info", f"Planned subtasks: {json.dumps(subtasks)}")

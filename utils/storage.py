@@ -17,9 +17,21 @@ def save_run(result) -> Path:
         "goal": result.goal,
         "subtasks": result.subtasks,
         "worker_results": [
-            {"task": r.task, "result": r.result} for r in result.worker_results
+            {
+                "task": r.task,
+                "result": r.result,
+                "model_used": r.model_used,
+                "input_tokens": r.input_tokens,
+                "output_tokens": r.output_tokens,
+                "cost_usd": r.cost_usd,
+            }
+            for r in result.worker_results
         ],
         "summary": result.summary,
+        "total_input_tokens": getattr(result, "total_input_tokens", 0),
+        "total_output_tokens": getattr(result, "total_output_tokens", 0),
+        "total_cost_usd": getattr(result, "total_cost_usd", 0.0),
+        "duration_seconds": getattr(result, "duration_seconds", 0.0),
     }
     path.write_text(json.dumps(data, indent=2))
     return path

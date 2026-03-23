@@ -32,24 +32,32 @@ class AgentBus:
 
     def ask(self, question: str, specialist: str = "default") -> str:
         """
-        Ask a specialist agent a question. Results are cached — identical
-        questions don't spawn duplicate workers.
+        Ask a specialist agent a question. Results are cached persistently in SQLite —
+        identical questions across sessions don't re-call the API.
         """
         cache_key = f"{specialist}::{question}"
+
+        # Check in-memory cache first (fast path)
         with _lock:
             if cache_key in self._cache:
                 return self._cache[cache_key]
 
-        # Import here to avoid circular imports
-        from agents.base import BaseAgent
+        # Check persistent SQLite cache
+        from utils.memory import get_specialist_cache, set_specialist_cache
+        cached = get_specialist_cache(cache_key)
+        if cached:
+            with _lock:
+                self._cache[cache_key] = cached
+            return cached
 
+        # Call API
+        from agents.base import Maya
         system_prompt = SPECIALIST_PROMPTS.get(specialist, SPECIALIST_PROMPTS["default"])
-        agent = BaseAgent(
-            model="claude-haiku-4-5-20251001",
-            system_prompt=system_prompt,
-        )
+        agent = Maya(model="claude-haiku-4-5-20251001", system_prompt=system_prompt)
         answer = agent.run([{"role": "user", "content": question}])
 
+        # Persist to both caches
+        set_specialist_cache(cache_key, answer)
         with _lock:
             self._cache[cache_key] = answer
 

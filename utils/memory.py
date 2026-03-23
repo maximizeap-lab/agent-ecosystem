@@ -4,7 +4,8 @@ utils/memory.py — Persistent memory store for the agent ecosystem.
 Agents remember:
 - Past goals and their subtask breakdowns (for pattern reuse)
 - Which model worked best for each task type
-- Run history with summaries
+- Run history with summaries, duration, and cost
+- Specialist agent responses (persistent cache across sessions)
 """
 
 import json
@@ -28,31 +29,46 @@ def init_db() -> None:
     with _lock, _conn() as con:
         con.executescript("""
             CREATE TABLE IF NOT EXISTS runs (
-                id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                goal      TEXT NOT NULL,
-                subtasks  TEXT NOT NULL,
-                summary   TEXT NOT NULL,
-                timestamp TEXT NOT NULL
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                goal             TEXT NOT NULL,
+                subtasks         TEXT NOT NULL,
+                summary          TEXT NOT NULL,
+                timestamp        TEXT NOT NULL,
+                duration_seconds REAL DEFAULT 0,
+                total_cost_usd   REAL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS model_performance (
-                task_pattern TEXT PRIMARY KEY,
-                model        TEXT NOT NULL,
+                task_pattern  TEXT PRIMARY KEY,
+                model         TEXT NOT NULL,
                 success_count INTEGER DEFAULT 1,
                 fail_count    INTEGER DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS specialist_cache (
+                cache_key  TEXT PRIMARY KEY,
+                answer     TEXT NOT NULL,
+                created_at TEXT NOT NULL
             );
 
             CREATE VIRTUAL TABLE IF NOT EXISTS runs_fts
                 USING fts5(goal, summary, content=runs, content_rowid=id);
         """)
+        # Migrate existing runs table if columns are missing
+        existing = {row[1] for row in con.execute("PRAGMA table_info(runs)").fetchall()}
+        if "duration_seconds" not in existing:
+            con.execute("ALTER TABLE runs ADD COLUMN duration_seconds REAL DEFAULT 0")
+        if "total_cost_usd" not in existing:
+            con.execute("ALTER TABLE runs ADD COLUMN total_cost_usd REAL DEFAULT 0")
 
 
-def save_run(goal: str, subtasks: "list[str]", summary: str) -> int:
+def save_run(goal: str, subtasks: "list[str]", summary: str,
+             duration_seconds: float = 0, total_cost_usd: float = 0) -> int:
     init_db()
     with _lock, _conn() as con:
         cur = con.execute(
-            "INSERT INTO runs (goal, subtasks, summary, timestamp) VALUES (?, ?, ?, ?)",
-            (goal, json.dumps(subtasks), summary, datetime.now().isoformat()),
+            "INSERT INTO runs (goal, subtasks, summary, timestamp, duration_seconds, total_cost_usd) VALUES (?, ?, ?, ?, ?, ?)",
+            (goal, json.dumps(subtasks), summary, datetime.now().isoformat(), duration_seconds, total_cost_usd),
         )
         row_id = cur.lastrowid
         con.execute(
@@ -63,9 +79,8 @@ def save_run(goal: str, subtasks: "list[str]", summary: str) -> int:
 
 
 def recall_similar_goals(goal: str, limit: int = 3) -> "list[dict]":
-    """Return past runs with similar goals — helps orchestrator reuse good subtask patterns."""
+    """Return past runs with similar goals — helps Chloe reuse good subtask patterns."""
     init_db()
-    # Build FTS query from significant words (skip short words)
     words = [w for w in goal.split() if len(w) > 3]
     if not words:
         return []
@@ -121,11 +136,54 @@ def record_model_failure(task_pattern: str, model: str) -> None:
         )
 
 
+# ── Specialist cache (persistent across sessions) ─────────────────────────────
+
+def get_specialist_cache(cache_key: str) -> "str | None":
+    init_db()
+    with _lock, _conn() as con:
+        row = con.execute(
+            "SELECT answer FROM specialist_cache WHERE cache_key = ?", (cache_key,)
+        ).fetchone()
+        return row["answer"] if row else None
+
+
+def set_specialist_cache(cache_key: str, answer: str) -> None:
+    init_db()
+    with _lock, _conn() as con:
+        con.execute(
+            "INSERT OR REPLACE INTO specialist_cache (cache_key, answer, created_at) VALUES (?, ?, ?)",
+            (cache_key, answer, datetime.now().isoformat()),
+        )
+
+
+# ── Analytics ─────────────────────────────────────────────────────────────────
+
+def get_analytics() -> dict:
+    init_db()
+    with _lock, _conn() as con:
+        total_runs = con.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+        total_cost = con.execute("SELECT COALESCE(SUM(total_cost_usd), 0) FROM runs").fetchone()[0]
+        avg_duration = con.execute("SELECT COALESCE(AVG(duration_seconds), 0) FROM runs WHERE duration_seconds > 0").fetchone()[0]
+        model_stats = con.execute(
+            "SELECT model, SUM(success_count) as wins, SUM(fail_count) as fails FROM model_performance GROUP BY model ORDER BY wins DESC"
+        ).fetchall()
+        recent_costs = con.execute(
+            "SELECT DATE(timestamp) as day, SUM(total_cost_usd) as cost FROM runs GROUP BY day ORDER BY day DESC LIMIT 7"
+        ).fetchall()
+    return {
+        "total_runs": total_runs,
+        "total_cost_usd": round(total_cost, 6),
+        "avg_duration_seconds": round(avg_duration, 1),
+        "model_performance": [dict(r) for r in model_stats],
+        "cost_last_7_days": [dict(r) for r in recent_costs],
+    }
+
+
 def get_all_runs(limit: int = 50) -> "list[dict]":
     init_db()
     with _lock, _conn() as con:
         rows = con.execute(
-            "SELECT id, goal, summary, timestamp FROM runs ORDER BY id DESC LIMIT ?",
+            "SELECT id, goal, summary, timestamp, duration_seconds, total_cost_usd FROM runs ORDER BY id DESC LIMIT ?",
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]

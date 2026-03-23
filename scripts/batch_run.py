@@ -26,7 +26,7 @@ from rich.rule import Rule
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 import anthropic
-from agents.orchestrator import OrchestratorAgent
+from agents.orchestrator import Chloe
 from agents.base import WORKER_MAX_TOKENS
 from agents.worker import WORKER_SYSTEM_PROMPT
 from utils import logger
@@ -43,7 +43,7 @@ def submit_batch(goal: str) -> str:
     console.print(Rule("[bold cyan]Batch Submit[/bold cyan]"))
     logger.info(f"Planning goal: {goal}")
 
-    orchestrator = OrchestratorAgent()
+    orchestrator = Chloe()
     subtasks = orchestrator._plan(goal)
     logger.orchestrator(f"Planned {len(subtasks)} subtasks")
 
@@ -127,11 +127,11 @@ def fetch_results(batch_id: str) -> None:
     ]
 
     console.print(Rule("[bold green]Synthesising Results[/bold green]"))
-    orchestrator = OrchestratorAgent()
+    orchestrator = Chloe()
     summary = orchestrator._synthesise(goal, worker_results)
 
-    from agents.orchestrator import OrchestratorResult
-    result_obj = OrchestratorResult(
+    from agents.orchestrator import ChloeResult
+    result_obj = ChloeResult(
         goal=goal, subtasks=subtasks, worker_results=worker_results, summary=summary
     )
     run_path = save_run(result_obj)

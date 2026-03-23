@@ -96,7 +96,8 @@
     }
     .run-item:hover { background: #1a1a2e; border-color: #4a5568; }
     .run-item .run-goal { font-size: 0.83rem; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .run-item .run-time { font-size: 0.7rem; color: #718096; margin-top: 3px; }
+    .run-item .run-meta { font-size: 0.7rem; color: #718096; margin-top: 3px; display: flex; gap: 8px; }
+    .run-item .run-cost { color: #68d391; }
 
     .artifact-item {
       padding: 8px 10px;
@@ -201,6 +202,7 @@
       <button onclick="switchMainTab('summary', this)">Summary</button>
       <button onclick="switchMainTab('code', this)">File Viewer</button>
       <button onclick="switchMainTab('status', this)">Status</button>
+      <button onclick="switchMainTab('analytics', this)">Analytics</button>
     </div>
 
     <div class="main-content">
@@ -219,6 +221,10 @@
 
       <div id="panel-status" class="main-panel">
         <div id="status-view" class="empty">Loading…</div>
+      </div>
+
+      <div id="panel-analytics" class="main-panel">
+        <div id="analytics-view" class="empty">Loading…</div>
       </div>
     </div>
   </main>
@@ -242,6 +248,7 @@
     btn.classList.add('active');
     document.getElementById('panel-' + name).classList.add('active');
     if (name === 'status') loadStatus();
+    if (name === 'analytics') loadAnalytics();
   }
 
   // ── Submit goal ──────────────────────────────────────────────────────────────
@@ -305,7 +312,11 @@
     el.innerHTML = runs.map(r => `
       <div class="run-item" onclick="showRun(${r.id})">
         <div class="run-goal">${r.goal}</div>
-        <div class="run-time">${new Date(r.timestamp).toLocaleString()}</div>
+        <div class="run-meta">
+          <span>${new Date(r.timestamp).toLocaleString()}</span>
+          ${r.total_cost_usd ? `<span class="run-cost">$${r.total_cost_usd.toFixed(4)}</span>` : ''}
+          ${r.duration_seconds ? `<span>${r.duration_seconds}s</span>` : ''}
+        </div>
       </div>
     `).join('');
   }
@@ -375,6 +386,41 @@
   document.addEventListener('keydown', e => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') submitGoal();
   });
+
+  // ── Analytics ────────────────────────────────────────────────────────────────
+  async function loadAnalytics() {
+    const res = await fetch('/analytics');
+    const a = await res.json();
+    const modelRows = (a.model_performance || []).map(m =>
+      `<tr><td style="padding:6px 12px;color:#e2e8f0">${m.model}</td><td style="padding:6px 12px;color:#68d391;text-align:right">${m.wins}</td><td style="padding:6px 12px;color:#fc8181;text-align:right">${m.fails}</td></tr>`
+    ).join('');
+    const costRows = (a.cost_last_7_days || []).map(d =>
+      `<tr><td style="padding:6px 12px;color:#a0aec0">${d.day}</td><td style="padding:6px 12px;color:#68d391;text-align:right">$${(d.cost||0).toFixed(5)}</td></tr>`
+    ).join('');
+    document.getElementById('analytics-view').innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:24px">
+        <div class="status-card"><h3>Total Runs</h3><div class="val ok">${a.total_runs}</div></div>
+        <div class="status-card"><h3>Total Cost</h3><div class="val" style="color:#f6ad55">$${(a.total_cost_usd||0).toFixed(4)}</div></div>
+        <div class="status-card"><h3>Avg Duration</h3><div class="val" style="color:#63b3ed">${a.avg_duration_seconds}s</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="status-card">
+          <h3 style="margin-bottom:12px">Model Performance</h3>
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr style="font-size:0.75rem;color:#718096"><th style="text-align:left;padding:4px 12px">Model</th><th style="text-align:right;padding:4px 12px">✓</th><th style="text-align:right;padding:4px 12px">✗</th></tr></thead>
+            <tbody>${modelRows || '<tr><td colspan="3" style="text-align:center;color:#718096;padding:16px">No data yet</td></tr>'}</tbody>
+          </table>
+        </div>
+        <div class="status-card">
+          <h3 style="margin-bottom:12px">Cost (Last 7 Days)</h3>
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr style="font-size:0.75rem;color:#718096"><th style="text-align:left;padding:4px 12px">Date</th><th style="text-align:right;padding:4px 12px">Cost</th></tr></thead>
+            <tbody>${costRows || '<tr><td colspan="2" style="text-align:center;color:#718096;padding:16px">No data yet</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
 
   // ── Init ─────────────────────────────────────────────────────────────────────
   loadRuns();

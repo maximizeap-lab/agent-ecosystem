@@ -19,8 +19,18 @@ DEFAULT_MODEL  = "claude-sonnet-4-6"
 WORKER_MAX_TOKENS = 1500   # workers don't need 4096; keeps token usage lean
 _console = Console()
 
+# Pricing per 1M tokens (USD) — update if Anthropic changes rates
+_PRICING = {
+    "claude-haiku-4-5-20251001": {"input": 0.80, "output": 4.00},
+    "claude-sonnet-4-6":         {"input": 3.00, "output": 15.00},
+}
 
-class BaseAgent:
+def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    prices = _PRICING.get(model, {"input": 3.00, "output": 15.00})
+    return round((input_tokens * prices["input"] + output_tokens * prices["output"]) / 1_000_000, 6)
+
+
+class Maya:
     """Base class for all agents in the ecosystem."""
 
     def __init__(
@@ -35,82 +45,80 @@ class BaseAgent:
         self.client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
     def run(self, messages: list[dict[str, Any]], tools: "list[dict] | None" = None) -> str:
-        """Send messages to the model and return the text response.
+        """Send messages to the model and return the text response."""
+        text, _, _ = self.run_with_usage(messages, tools=tools)
+        return text
+
+    def run_with_usage(self, messages: list[dict[str, Any]], tools: "list[dict] | None" = None) -> "tuple[str, int, int]":
+        """Send messages and return (text, input_tokens, output_tokens).
 
         Retries on transient API errors with exponential back-off.
-        If tools are provided, handles tool-use loops automatically.
+        Handles agentic tool-use loops automatically.
         """
+        total_in = total_out = 0
 
         @retry(
             retry=retry_if_exception_type(
-                (
-                    anthropic.RateLimitError,
-                    anthropic.APIStatusError,
-                    anthropic.APIConnectionError,
-                )
+                (anthropic.RateLimitError, anthropic.APIStatusError, anthropic.APIConnectionError)
             ),
             stop=stop_after_attempt(self.max_retries),
             wait=wait_exponential(multiplier=2, min=5, max=90),
             reraise=True,
         )
-        def _call() -> str:
+        def _call() -> "tuple[str, int, int]":
+            nonlocal total_in, total_out
             kwargs: dict[str, Any] = dict(
                 model=self.model,
                 max_tokens=WORKER_MAX_TOKENS,
-                # Prompt caching — system prompt cached for 5 min (saves tokens on repeated calls)
-                system=[{
-                    "type": "text",
-                    "text": self.system_prompt,
-                    "cache_control": {"type": "ephemeral"},
-                }],
+                system=[{"type": "text", "text": self.system_prompt, "cache_control": {"type": "ephemeral"}}],
                 messages=messages,
             )
             if tools:
                 kwargs["tools"] = tools
 
             response = self.client.messages.create(**kwargs)
+            total_in += response.usage.input_tokens
+            total_out += response.usage.output_tokens
 
-            # Agentic tool-use loop
             while response.stop_reason == "tool_use":
                 tool_results = []
                 for block in response.content:
                     if block.type == "tool_use":
                         result = _dispatch_tool(block.name, block.input)
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": result,
-                        })
-
+                        tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
                 messages.append({"role": "assistant", "content": response.content})
                 messages.append({"role": "user", "content": tool_results})
-
                 response = self.client.messages.create(**kwargs | {"messages": messages})
+                total_in += response.usage.input_tokens
+                total_out += response.usage.output_tokens
 
-            return "".join(
-                block.text for block in response.content if hasattr(block, "text")
-            )
+            text = "".join(block.text for block in response.content if hasattr(block, "text"))
+            return text, total_in, total_out
 
         return _call()
 
-    def stream(self, messages: list[dict[str, Any]]) -> str:
-        """Stream a response to the terminal and return the full text."""
+    def stream(self, messages: list[dict[str, Any]]) -> "tuple[str, int, int]":
+        """Stream a response to the terminal and return (full_text, input_tokens, output_tokens)."""
         full_text = ""
+        input_tokens = output_tokens = 0
         with self.client.messages.stream(
             model=self.model,
-            max_tokens=4096,  # synthesis can be longer
+            max_tokens=4096,
             system=[{
                 "type": "text",
                 "text": self.system_prompt,
                 "cache_control": {"type": "ephemeral"},
             }],
             messages=messages,
-        ) as stream:
-            for text in stream.text_stream:
+        ) as s:
+            for text in s.text_stream:
                 _console.print(text, end="", markup=False)
                 full_text += text
+            usage = s.get_final_message().usage
+            input_tokens = usage.input_tokens
+            output_tokens = usage.output_tokens
         _console.print()
-        return full_text
+        return full_text, input_tokens, output_tokens
 
 
 # ── Built-in tools ────────────────────────────────────────────────────────────
@@ -192,6 +200,68 @@ _ARTIFACTS_DIR = (
     __import__("pathlib").Path(__file__).resolve().parent.parent / "runs" / "artifacts"
 )
 
+# OpenAI function-call format for Luna (Ollama)
+WORKER_TOOLS_OPENAI = [
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Write content to a file in runs/artifacts/. Use for code, configs, docs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string", "description": "Filename including extension"},
+                    "content":  {"type": "string", "description": "Full file content"},
+                },
+                "required": ["filename", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read a file from runs/artifacts/.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string", "description": "Filename to read"},
+                },
+                "required": ["filename"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "Search the web for up-to-date information.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query":       {"type": "string", "description": "Search query"},
+                    "max_results": {"type": "integer", "description": "Number of results (default 5)"},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_code",
+            "description": "Execute Python code and return output.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "Python code to execute"},
+                },
+                "required": ["code"],
+            },
+        },
+    },
+]
+
 
 def _dispatch_tool(name: str, inputs: dict) -> str:
     """Execute a built-in tool and return a string result."""
@@ -239,11 +309,20 @@ def _tool_web_search(query: str, max_results: int = 5) -> str:
 
 def _tool_run_code(code: str) -> str:
     import subprocess
+    import tempfile
+    # Block dangerous patterns before execution
+    _BLOCKED = ["os.system", "subprocess", "shutil.rmtree", "__import__('os')", "open('/", "eval(", "exec("]
+    for pattern in _BLOCKED:
+        if pattern in code:
+            return f"Error: blocked pattern '{pattern}' — run_code is for data processing only, not system commands."
     try:
-        result = subprocess.run(
-            ["python3", "-c", code],
-            capture_output=True, text=True, timeout=15,
-        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                ["python3", "-c", code],
+                capture_output=True, text=True, timeout=15,
+                cwd=tmpdir,
+                env={"PATH": "/usr/bin:/bin", "HOME": tmpdir},  # minimal env, no secrets
+            )
         output = result.stdout or ""
         errors = result.stderr or ""
         if errors and not output:

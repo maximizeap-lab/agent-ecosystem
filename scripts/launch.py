@@ -13,7 +13,7 @@ from rich.text import Text
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "../.env"))
 
-from agents.orchestrator import OrchestratorAgent
+from agents.orchestrator import Chloe
 from utils import logger
 from utils.storage import save_run
 
@@ -98,14 +98,14 @@ def run_heal() -> None:
     console.print()
 
     try:
-        orchestrator = OrchestratorAgent()
+        orchestrator = Chloe()
         subtasks = orchestrator._plan(goal)
         logger.orchestrator(f"Planned {len(subtasks)} subtask(s)")
     except Exception as exc:
         logger.error(f"Planning failed during heal: {exc}")
         return
 
-    from agents.worker import WorkerResult
+    from agents.worker import WorkerResult  # WorkerResult kept for type compat
     results = []
     for i, task in enumerate(subtasks, 1):
         logger.orchestrator(f"Healing worker {i}/{len(subtasks)}")
@@ -156,7 +156,7 @@ def main() -> None:
     )
     console.print()
 
-    orchestrator = OrchestratorAgent()
+    orchestrator = Chloe()
 
     try:
         result = orchestrator.execute(goal)
