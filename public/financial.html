@@ -1,0 +1,1261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MAP Financial Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:        #0a0c10;
+    --surface:   #111318;
+    --surface2:  #181b22;
+    --border:    #1f2330;
+    --accent:    #6c63ff;
+    --accent2:   #00d4aa;
+    --accent3:   #ff6b6b;
+    --accent4:   #ffa94d;
+    --text:      #e8eaf0;
+    --muted:     #6b7280;
+    --success:   #22c55e;
+    --danger:    #ef4444;
+    --warning:   #f59e0b;
+    --sidebar-w: 230px;
+    --radius:    12px;
+    --radius-sm: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    display: flex;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  .sidebar {
+    width: var(--sidebar-w);
+    min-height: 100vh;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    z-index: 100;
+    transition: transform .25s ease;
+  }
+  .logo { padding: 22px 20px 16px; border-bottom: 1px solid var(--border); }
+  .logo-badge { display: inline-flex; align-items: center; gap: 10px; }
+  .logo-icon { width: 32px; height: 32px; background: linear-gradient(135deg, var(--accent), var(--accent2)); border-radius: 8px; display: grid; place-items: center; font-size: 16px; font-weight: 800; color: #fff; }
+  .logo-text { font-size: 16px; font-weight: 700; letter-spacing: -.3px; }
+  .logo-sub  { font-size: 10px; color: var(--muted); margin-top: 1px; letter-spacing: .5px; text-transform: uppercase; }
+  nav { flex: 1; padding: 12px 0; overflow-y: auto; }
+  .nav-section { padding: 6px 14px 4px; font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-top: 8px; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 16px; margin: 1px 8px; border-radius: var(--radius-sm); cursor: pointer; color: var(--muted); transition: background .15s, color .15s; font-size: 13.5px; font-weight: 500; border: none; background: none; width: calc(100% - 16px); text-align: left; }
+  .nav-item:hover  { background: var(--surface2); color: var(--text); }
+  .nav-item.active { background: rgba(108,99,255,.15); color: var(--accent); }
+  .nav-item .icon  { font-size: 15px; width: 18px; text-align: center; }
+  .nav-badge { margin-left: auto; background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 20px; }
+  .sidebar-footer { padding: 14px 16px; border-top: 1px solid var(--border); }
+  .tier-bar-wrap { display: flex; flex-direction: column; gap: 5px; }
+  .tier-label { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+  .tier-bar-bg { height: 5px; background: var(--surface2); border-radius: 99px; overflow: hidden; }
+  .tier-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 99px; width: 0%; transition: width 1s cubic-bezier(.4,0,.2,1); }
+  .tier-cta { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .tier-cta span { color: var(--accent2); font-weight: 600; }
+  .main { margin-left: var(--sidebar-w); flex: 1; display: flex; flex-direction: column; min-height: 100vh; }
+  .topbar { position: sticky; top: 0; z-index: 50; background: rgba(10,12,16,.85); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); padding: 0 28px; height: 58px; display: flex; align-items: center; gap: 16px; }
+  .topbar-title { font-size: 15px; font-weight: 600; flex: 1; }
+  .topbar-title span { color: var(--muted); font-weight: 400; margin-left: 6px; }
+  .period-tabs { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px; }
+  .period-tab { padding: 5px 14px; border-radius: 6px; font-size: 12px; font-weight: 500; cursor: pointer; color: var(--muted); border: none; background: none; transition: background .15s, color .15s; }
+  .period-tab.active { background: var(--accent); color: #fff; }
+  .topbar-actions { display: flex; gap: 8px; }
+  .btn { padding: 7px 14px; border-radius: var(--radius-sm); font-size: 12.5px; font-weight: 500; cursor: pointer; border: none; transition: opacity .15s; }
+  .btn:hover { opacity: .85; }
+  .btn-ghost { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .content { padding: 24px 28px 40px; flex: 1; }
+  .page { display: none; }
+  .page.active { display: block; }
+  .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .section-title { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+  .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 24px; }
+  .metric-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; position: relative; overflow: hidden; transition: border-color .2s, transform .15s; }
+  .metric-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .metric-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; }
+  .metric-card.purple::before  { background: linear-gradient(90deg, var(--accent), transparent); }
+  .metric-card.teal::before    { background: linear-gradient(90deg, var(--accent2), transparent); }
+  .metric-card.red::before     { background: linear-gradient(90deg, var(--accent3), transparent); }
+  .metric-card.orange::before  { background: linear-gradient(90deg, var(--accent4), transparent); }
+  .metric-card.green::before   { background: linear-gradient(90deg, var(--success), transparent); }
+  .metric-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
+  .metric-value { font-size: 28px; font-weight: 700; letter-spacing: -1px; line-height: 1; }
+  .metric-value.sm { font-size: 20px; }
+  .metric-sub { font-size: 12px; color: var(--muted); margin-top: 6px; display: flex; align-items: center; gap: 5px; }
+  .delta { font-weight: 600; }
+  .delta.up   { color: var(--success); }
+  .delta.down { color: var(--danger); }
+  .delta.warn { color: var(--warning); }
+  .metric-icon { position: absolute; top: 16px; right: 16px; font-size: 22px; opacity: .25; }
+  .charts-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; margin-bottom: 24px; }
+  .charts-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-bottom: 24px; }
+  .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+  .chart-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .chart-sub { font-size: 12px; color: var(--muted); margin-bottom: 18px; }
+  .chart-wrap { position: relative; }
+  .table-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 24px; }
+  .table-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+  .table-header .chart-title { margin-bottom: 0; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { padding: 10px 20px; text-align: left; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; background: var(--surface2); border-bottom: 1px solid var(--border); }
+  tbody tr { border-bottom: 1px solid var(--border); transition: background .1s; }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: var(--surface2); }
+  tbody td { padding: 12px 20px; font-size: 13px; }
+  .pill { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+  .pill.green  { background: rgba(34,197,94,.12);  color: #22c55e; }
+  .pill.red    { background: rgba(239,68,68,.12);  color: #ef4444; }
+  .pill.purple { background: rgba(108,99,255,.12); color: #6c63ff; }
+  .pill.teal   { background: rgba(0,212,170,.12);  color: #00d4aa; }
+  .pill.orange { background: rgba(255,107,107,.12); color: #ffa94d; }
+  .pill.muted  { background: var(--surface2); color: var(--muted); }
+  .progress-bg { height: 6px; background: var(--surface2); border-radius: 99px; overflow: hidden; flex: 1; }
+  .progress-fill { height: 100%; border-radius: 99px; transition: width 1.2s cubic-bezier(.4,0,.2,1); }
+  .model-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .model-row:last-child { border-bottom: none; }
+  .model-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .model-name { font-size: 13px; font-weight: 500; width: 160px; flex-shrink: 0; }
+  .model-cost { font-size: 13px; font-weight: 600; width: 60px; text-align: right; flex-shrink: 0; }
+  .model-pct  { font-size: 11px; color: var(--muted); width: 36px; text-align: right; flex-shrink: 0; }
+  .alert { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-radius: var(--radius-sm); font-size: 13px; margin-bottom: 20px; }
+  .alert.info    { background: rgba(108,99,255,.1); border: 1px solid rgba(108,99,255,.25); }
+  .alert.success { background: rgba(34,197,94,.1);  border: 1px solid rgba(34,197,94,.25); }
+  .alert.warning { background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.25); }
+  .alert .alert-icon { font-size: 18px; }
+  .alert-text b { font-weight: 600; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 24px; }
+  .gauge-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+  .gauge-label { font-size: 12px; color: var(--muted); width: 120px; flex-shrink: 0; }
+  .gauge-val   { font-size: 12px; font-weight: 600; width: 80px; text-align: right; flex-shrink: 0; }
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+  .mobile-toggle { display: none; position: fixed; top: 14px; left: 14px; z-index: 200; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; cursor: pointer; font-size: 16px; color: var(--text); }
+  .live-dot { display: inline-block; width: 7px; height: 7px; background: #22c55e; border-radius: 50%; animation: pulse 1.8s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .4; transform: scale(1.4); } }
+  [data-tip] { position: relative; cursor: help; }
+  [data-tip]::after { content: attr(data-tip); position: absolute; bottom: 125%; left: 50%; transform: translateX(-50%); background: #1f2330; color: var(--text); padding: 5px 10px; border-radius: 6px; font-size: 11px; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .2s; border: 1px solid var(--border); z-index: 999; }
+  [data-tip]:hover::after { opacity: 1; }
+  @media (max-width: 900px) { .charts-grid, .charts-grid-3, .two-col { grid-template-columns: 1fr; } }
+  @media (max-width: 700px) { .sidebar { transform: translateX(-100%); } .sidebar.open { transform: translateX(0); } .main { margin-left: 0; } .mobile-toggle { display: block; } .topbar { padding-left: 54px; } .content { padding: 16px; } .metrics-grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 420px) { .metrics-grid { grid-template-columns: 1fr; } }
+
+  /* ── Cash Forecast page styles ── */
+  .cf-top-bar {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px 20px; margin-bottom: 20px;
+  }
+  .cf-top-bar label { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
+  .cf-cash-input {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    color: var(--text); font-size: 15px; font-weight: 700; padding: 7px 12px;
+    width: 140px; outline: none; transition: border-color .15s;
+  }
+  .cf-cash-input:focus { border-color: var(--accent); }
+  .cf-scenario-btns { display: flex; gap: 6px; margin-left: auto; }
+  .cf-scenario-btn {
+    padding: 7px 16px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 600;
+    cursor: pointer; border: 1px solid var(--border); background: var(--surface2); color: var(--muted);
+    transition: all .15s;
+  }
+  .cf-scenario-btn.active { border-color: var(--accent); background: rgba(108,99,255,.18); color: var(--accent); }
+  .cf-scenario-btn.bull.active { border-color: var(--success); background: rgba(34,197,94,.12); color: var(--success); }
+  .cf-scenario-btn.bear.active { border-color: var(--danger); background: rgba(239,68,68,.1); color: var(--danger); }
+
+  .runway-bar {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px;
+  }
+  .runway-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 18px;
+  }
+  .runway-card .rc-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+  .runway-card .rc-val { font-size: 22px; font-weight: 700; letter-spacing: -.5px; line-height: 1; }
+  .runway-card .rc-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  .cf-forecast-wrap { overflow-x: auto; margin-bottom: 24px; }
+  .cf-table {
+    width: 100%; border-collapse: collapse;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: hidden; min-width: 1100px;
+  }
+  .cf-table thead th {
+    padding: 9px 10px; font-size: 10px; font-weight: 700; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .5px; background: var(--surface2);
+    border-bottom: 1px solid var(--border); text-align: center; white-space: nowrap;
+  }
+  .cf-table thead th:first-child { text-align: left; padding-left: 14px; min-width: 200px; }
+  .cf-table tbody tr { border-bottom: 1px solid var(--border); }
+  .cf-table tbody tr:last-child { border-bottom: none; }
+  .cf-table tbody td { padding: 6px 6px; font-size: 12px; text-align: center; vertical-align: middle; }
+  .cf-table tbody td:first-child { text-align: left; padding-left: 14px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+  .cf-table .row-section-header td {
+    background: rgba(108,99,255,.07); color: var(--accent); font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .8px; padding: 7px 14px;
+    border-top: 1px solid rgba(108,99,255,.2);
+  }
+  .cf-table .row-total td { background: var(--surface2); font-weight: 700; }
+  .cf-table .row-total td:first-child { color: var(--text); }
+  .cf-table .row-net td { font-weight: 800; font-size: 13px; }
+  .cf-table .row-balance td { font-weight: 600; }
+  .cf-table .row-runway td { font-weight: 600; color: var(--muted); font-size: 11px; }
+  .cf-cell {
+    background: transparent; border: 1px solid transparent; border-radius: 4px;
+    color: var(--text); font-size: 12px; font-weight: 500; font-family: inherit;
+    padding: 4px 6px; width: 80px; text-align: center; outline: none;
+    transition: border-color .15s, background .15s;
+  }
+  .cf-cell:focus { border-color: var(--accent); background: rgba(108,99,255,.08); }
+  .cf-cell:hover { border-color: var(--border); }
+  .cf-cell[readonly] {
+    cursor: default; color: var(--muted); font-style: normal;
+    pointer-events: none;
+  }
+  .net-pos { color: var(--success) !important; }
+  .net-neg { color: var(--danger) !important; }
+  .bal-danger td { background: rgba(239,68,68,.08) !important; }
+  .bal-warning td { background: rgba(245,158,11,.07) !important; }
+  .cf-chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 24px; }
+</style>
+</head>
+<body>
+
+<button class="mobile-toggle" onclick="toggleSidebar()">☰</button>
+
+<aside class="sidebar" id="sidebar">
+  <div class="logo">
+    <div class="logo-badge">
+      <div class="logo-icon">M</div>
+      <div>
+        <div class="logo-text">MAP HQ</div>
+        <div class="logo-sub">Financial Dashboard</div>
+      </div>
+    </div>
+  </div>
+  <nav>
+    <div class="nav-section">Overview</div>
+    <button class="nav-item active" onclick="navigate('overview', this)"><span class="icon">📊</span> Overview</button>
+    <button class="nav-item" onclick="navigate('api-costs', this)"><span class="icon">🤖</span> API Costs</button>
+    <button class="nav-item" onclick="navigate('model-usage', this)"><span class="icon">⚡</span> Model Usage</button>
+    <div class="nav-section">Finance</div>
+    <button class="nav-item" onclick="navigate('budget', this)"><span class="icon">💰</span> Budget</button>
+    <button class="nav-item" onclick="navigate('cash-forecast', this)"><span class="icon">🔮</span> Cash Forecast</button>
+    <button class="nav-item" onclick="navigate('transactions', this)"><span class="icon">🧾</span> Transactions</button>
+    <button class="nav-item" onclick="navigate('projections', this)"><span class="icon">📈</span> Projections</button>
+    <div class="nav-section">System</div>
+    <button class="nav-item" onclick="navigate('rate-limits', this)"><span class="icon">🔒</span> Rate Limits <span class="nav-badge">T1</span></button>
+    <button class="nav-item" onclick="navigate('efficiency', this)"><span class="icon">🌿</span> Efficiency</button>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="tier-bar-wrap">
+      <div class="tier-label"><span>Tier 1 → Tier 2</span><span>$10 / $50</span></div>
+      <div class="tier-bar-bg"><div class="tier-bar-fill" id="tierBar"></div></div>
+      <div class="tier-cta">Need <span>$40 more</span> to unlock 10× limits</div>
+    </div>
+  </div>
+</aside>
+
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-title">Financial Overview <span id="topbar-sub">· Overview</span></div>
+    <div class="period-tabs">
+      <button class="period-tab active" onclick="setPeriod('7d',this)">7D</button>
+      <button class="period-tab" onclick="setPeriod('30d',this)">30D</button>
+      <button class="period-tab" onclick="setPeriod('90d',this)">90D</button>
+      <button class="period-tab" onclick="setPeriod('all',this)">All</button>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn btn-ghost" id="refreshBtn" onclick="refreshData()">↻ Refresh</button>
+      <button class="btn btn-primary" onclick="window.print()">↓ Export</button>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- PAGE: OVERVIEW -->
+    <div class="page active" id="page-overview">
+      <div class="alert info">
+        <span class="alert-icon">💡</span>
+        <div class="alert-text"><b>Milestone Alert:</b> You're $40 away from Anthropic Tier 2. At current burn rate you'll unlock 10× rate limits in ~18 days.</div>
+        <span class="live-dot" style="margin-left:auto;flex-shrink:0"></span>
+      </div>
+      <div class="metrics-grid">
+        <div class="metric-card purple" data-tip="Total API spend this month">
+          <span class="metric-icon">💳</span>
+          <div class="metric-label">API Spend (Mar)</div>
+          <div class="metric-value">$3.42</div>
+          <div class="metric-sub"><span class="delta up">↑ 18%</span> vs Feb ($2.90)</div>
+        </div>
+        <div class="metric-card teal" data-tip="Cost per agent run across all models">
+          <span class="metric-icon">⚙️</span>
+          <div class="metric-label">Avg Cost / Run</div>
+          <div class="metric-value">$0.024</div>
+          <div class="metric-sub"><span class="delta up">↓ 12%</span> vs last month</div>
+        </div>
+        <div class="metric-card orange" data-tip="Projected monthly spend at current rate">
+          <span class="metric-icon">🔮</span>
+          <div class="metric-label">Projected (Mar)</div>
+          <div class="metric-value">$4.10</div>
+          <div class="metric-sub"><span class="delta warn">~$50 in 18d</span> → Tier 2</div>
+        </div>
+        <div class="metric-card green" data-tip="Cumulative spend toward $50 Tier 2 threshold">
+          <span class="metric-icon">🎯</span>
+          <div class="metric-label">Cumulative Spend</div>
+          <div class="metric-value">$10.00</div>
+          <div class="metric-sub"><span class="delta up">20%</span> to Tier 2 ($50)</div>
+        </div>
+        <div class="metric-card teal" data-tip="% of runs handled by free local Ollama models">
+          <span class="metric-icon">🌿</span>
+          <div class="metric-label">Ollama Offload</div>
+          <div class="metric-value">78%</div>
+          <div class="metric-sub"><span class="delta up">↑ 5%</span> runs on local models</div>
+        </div>
+        <div class="metric-card purple" data-tip="Total agent runs this month">
+          <span class="metric-icon">🚀</span>
+          <div class="metric-label">Total Runs (Mar)</div>
+          <div class="metric-value">142</div>
+          <div class="metric-sub"><span class="delta up">↑ 31</span> runs vs Feb</div>
+        </div>
+      </div>
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-title">Daily API Spend</div>
+          <div class="chart-sub">Anthropic charges by model · USD</div>
+          <div class="chart-wrap"><canvas id="chart-daily-spend" height="200"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Spend by Model</div>
+          <div class="chart-sub">Claude models only (Ollama = $0)</div>
+          <div class="chart-wrap"><canvas id="chart-model-pie" height="200"></canvas></div>
+        </div>
+      </div>
+      <div class="charts-grid-3">
+        <div class="chart-card">
+          <div class="chart-title">Cumulative Spend</div>
+          <div class="chart-sub">Tracking toward $50 Tier 2 threshold</div>
+          <div class="chart-wrap"><canvas id="chart-cumulative" height="180"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Runs per Day</div>
+          <div class="chart-sub">Claude vs Ollama routing</div>
+          <div class="chart-wrap"><canvas id="chart-runs" height="180"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Token Usage</div>
+          <div class="chart-sub">Input vs Output tokens (K)</div>
+          <div class="chart-wrap"><canvas id="chart-tokens" height="180"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAGE: API COSTS -->
+    <div class="page" id="page-api-costs">
+      <div class="metrics-grid" style="grid-template-columns:repeat(4,1fr)">
+        <div class="metric-card purple"><span class="metric-icon">🧠</span><div class="metric-label">Sonnet (Aria)</div><div class="metric-value sm">$2.14</div><div class="metric-sub">Synthesiser — 62% of spend</div></div>
+        <div class="metric-card teal"><span class="metric-icon">🎭</span><div class="metric-label">Haiku (Chloe+Nova)</div><div class="metric-value sm">$1.08</div><div class="metric-sub">Orchestrator + Fallback</div></div>
+        <div class="metric-card green"><span class="metric-icon">🌿</span><div class="metric-label">Ollama Cost</div><div class="metric-value sm">$0.00</div><div class="metric-sub">6 local models · 100% free</div></div>
+        <div class="metric-card orange"><span class="metric-icon">📦</span><div class="metric-label">Batch API Savings</div><div class="metric-value sm">$0.54</div><div class="metric-sub">50% discount on batch runs</div></div>
+      </div>
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-title">API Cost Breakdown Over Time</div>
+          <div class="chart-sub">Sonnet vs Haiku vs Batch · daily USD</div>
+          <div class="chart-wrap"><canvas id="chart-cost-stack" height="220"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Model Pricing Reference</div>
+          <div class="chart-sub">per 1M tokens (input / output)</div>
+          <div style="margin-top:8px">
+            <div class="model-row"><div class="model-dot" style="background:#6c63ff"></div><div class="model-name">claude-sonnet-4-6</div><div class="progress-bg"><div class="progress-fill" style="width:100%;background:#6c63ff"></div></div><div class="model-cost" style="color:#6c63ff">$3/$15</div></div>
+            <div class="model-row"><div class="model-dot" style="background:#00d4aa"></div><div class="model-name">claude-haiku-4-5</div><div class="progress-bg"><div class="progress-fill" style="width:33%;background:#00d4aa"></div></div><div class="model-cost" style="color:#00d4aa">$1/$5</div></div>
+            <div class="model-row"><div class="model-dot" style="background:#22c55e"></div><div class="model-name">Ollama (all 6)</div><div class="progress-bg"><div class="progress-fill" style="width:0%;background:#22c55e"></div></div><div class="model-cost" style="color:#22c55e">FREE</div></div>
+            <div class="model-row"><div class="model-dot" style="background:#f59e0b"></div><div class="model-name">Batch API (50% off)</div><div class="progress-bg"><div class="progress-fill" style="width:50%;background:#f59e0b"></div></div><div class="model-cost" style="color:#f59e0b">$1.5/$7.5</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="table-card">
+        <div class="table-header"><div class="chart-title">API Billing Events</div></div>
+        <table>
+          <thead><tr><th>Date</th><th>Model</th><th>Input Tokens</th><th>Output Tokens</th><th>Cost</th><th>Type</th></tr></thead>
+          <tbody>
+            <tr><td>Mar 30</td><td>claude-sonnet-4-6</td><td>4,200</td><td>890</td><td>$0.026</td><td><span class="pill purple">Synthesis</span></td></tr>
+            <tr><td>Mar 30</td><td>claude-haiku-4-5</td><td>1,100</td><td>240</td><td>$0.002</td><td><span class="pill teal">Orchestrate</span></td></tr>
+            <tr><td>Mar 29</td><td>claude-sonnet-4-6</td><td>3,800</td><td>760</td><td>$0.023</td><td><span class="pill purple">Synthesis</span></td></tr>
+            <tr><td>Mar 29</td><td>claude-haiku-4-5</td><td>950</td><td>180</td><td>$0.002</td><td><span class="pill teal">Fallback</span></td></tr>
+            <tr><td>Mar 28</td><td>Batch API</td><td>28,000</td><td>5,600</td><td>$0.126</td><td><span class="pill orange">Batch</span></td></tr>
+            <tr><td>Mar 27</td><td>claude-sonnet-4-6</td><td>5,100</td><td>1,020</td><td>$0.031</td><td><span class="pill purple">Synthesis</span></td></tr>
+            <tr><td>Mar 26</td><td>claude-haiku-4-5</td><td>800</td><td>160</td><td>$0.002</td><td><span class="pill teal">Orchestrate</span></td></tr>
+            <tr><td>Mar 25</td><td>Batch API</td><td>22,000</td><td>4,400</td><td>$0.099</td><td><span class="pill orange">Batch</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- PAGE: MODEL USAGE -->
+    <div class="page" id="page-model-usage">
+      <div class="metrics-grid" style="grid-template-columns:repeat(3,1fr)">
+        <div class="metric-card teal"><span class="metric-icon">🔢</span><div class="metric-label">Total Runs (Mar)</div><div class="metric-value">142</div><div class="metric-sub">All agents combined</div></div>
+        <div class="metric-card green"><span class="metric-icon">🌿</span><div class="metric-label">Ollama Runs</div><div class="metric-value">111</div><div class="metric-sub"><span class="delta up">78%</span> of all runs · FREE</div></div>
+        <div class="metric-card purple"><span class="metric-icon">🤖</span><div class="metric-label">Claude Runs</div><div class="metric-value">31</div><div class="metric-sub"><span class="delta warn">22%</span> billed to Anthropic</div></div>
+      </div>
+      <div class="chart-card" style="margin-bottom:14px">
+        <div class="chart-title">Model Routing Distribution</div>
+        <div class="chart-sub">Runs routed to each model this month</div>
+        <div style="margin-top:16px">
+          <div class="model-row"><div class="model-dot" style="background:#6c63ff"></div><div class="model-name">claude-sonnet-4-6 (Aria)</div><div class="progress-bg"><div class="progress-fill" style="width:14.8%;background:#6c63ff"></div></div><div class="model-pct">15%</div><div class="model-cost">21 runs</div></div>
+          <div class="model-row"><div class="model-dot" style="background:#00d4aa"></div><div class="model-name">claude-haiku-4-5 (Chloe)</div><div class="progress-bg"><div class="progress-fill" style="width:7%;background:#00d4aa"></div></div><div class="model-pct">7%</div><div class="model-cost">10 runs</div></div>
+          <div class="model-row"><div class="model-dot" style="background:#22c55e"></div><div class="model-name">deepseek-coder:6.7b</div><div class="progress-bg"><div class="progress-fill" style="width:21%;background:#22c55e"></div></div><div class="model-pct">21%</div><div class="model-cost">30 runs</div></div>
+          <div class="model-row"><div class="model-dot" style="background:#3b82f6"></div><div class="model-name">mistral:7b</div><div class="progress-bg"><div class="progress-fill" style="width:17%;background:#3b82f6"></div></div><div class="model-pct">17%</div><div class="model-cost">24 runs</div></div>
+          <div class="model-row"><div class="model-dot" style="background:#f59e0b"></div><div class="model-name">llama3.1:8b</div><div class="progress-bg"><div class="progress-fill" style="width:15%;background:#f59e0b"></div></div><div class="model-pct">15%</div><div class="model-cost">21 runs</div></div>
+          <div class="model-row"><div class="model-dot" style="background:#ec4899"></div><div class="model-name">gemma2:9b</div><div class="progress-bg"><div class="progress-fill" style="width:11%;background:#ec4899"></div></div><div class="model-pct">11%</div><div class="model-cost">16 runs</div></div>
+          <div class="model-row"><div class="model-dot" style="background:#8b5cf6"></div><div class="model-name">phi3.5:mini</div><div class="progress-bg"><div class="progress-fill" style="width:8%;background:#8b5cf6"></div></div><div class="model-pct">8%</div><div class="model-cost">11 runs</div></div>
+          <div class="model-row"><div class="model-dot" style="background:#64748b"></div><div class="model-name">llama3.2:3b (default)</div><div class="progress-bg"><div class="progress-fill" style="width:6%;background:#64748b"></div></div><div class="model-pct">6%</div><div class="model-cost">9 runs</div></div>
+        </div>
+      </div>
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-title">Routing History (Daily)</div>
+          <div class="chart-sub">Claude vs Ollama stacked</div>
+          <div class="chart-wrap"><canvas id="chart-routing" height="200"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Task → Model Map</div>
+          <div class="chart-sub">How router.py classifies task types</div>
+          <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--surface2);border-radius:8px"><span style="font-size:12px">Code / API / Tests</span><span class="pill teal">deepseek-coder</span></div>
+            <div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--surface2);border-radius:8px"><span style="font-size:12px">Schemas / Config / DB</span><span class="pill purple">mistral:7b</span></div>
+            <div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--surface2);border-radius:8px"><span style="font-size:12px">Design / Writing</span><span class="pill orange">llama3.1:8b</span></div>
+            <div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--surface2);border-radius:8px"><span style="font-size:12px">Docs / Guides</span><span class="pill muted">phi3.5:mini</span></div>
+            <div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--surface2);border-radius:8px"><span style="font-size:12px">Analysis / Reasoning</span><span class="pill green">gemma2:9b</span></div>
+            <div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--surface2);border-radius:8px"><span style="font-size:12px">Synthesis (always)</span><span class="pill purple">Sonnet (Aria)</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAGE: BUDGET -->
+    <div class="page" id="page-budget">
+      <div class="alert success">
+        <span class="alert-icon">✅</span>
+        <div class="alert-text"><b>On Budget:</b> March spend is tracking 18% under the $5 monthly target. Ollama offload is performing above expectations.</div>
+      </div>
+      <div class="metrics-grid" style="grid-template-columns:repeat(4,1fr)">
+        <div class="metric-card teal"><span class="metric-icon">🎯</span><div class="metric-label">Monthly Budget</div><div class="metric-value sm">$5.00</div><div class="metric-sub">Self-imposed API cap</div></div>
+        <div class="metric-card purple"><span class="metric-icon">📊</span><div class="metric-label">Used (Mar 1–30)</div><div class="metric-value sm">$3.42</div><div class="metric-sub"><span class="delta up">68%</span> of budget used</div></div>
+        <div class="metric-card green"><span class="metric-icon">💚</span><div class="metric-label">Remaining</div><div class="metric-value sm">$1.58</div><div class="metric-sub">With 1 day left in Mar</div></div>
+        <div class="metric-card orange"><span class="metric-icon">📅</span><div class="metric-label">Daily Run Rate</div><div class="metric-value sm">$0.114</div><div class="metric-sub">Avg last 30 days</div></div>
+      </div>
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-title">Budget Burn (Mar)</div>
+          <div class="chart-sub">Actual cumulative vs $5 monthly budget line</div>
+          <div class="chart-wrap"><canvas id="chart-budget-burn" height="220"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Monthly Performance</div>
+          <div class="chart-sub">Historical vs $5 budget target</div>
+          <div style="margin-top:12px">
+            <div class="model-row"><div class="model-name" style="color:var(--muted);font-size:12px">January</div><div class="progress-bg"><div class="progress-fill" style="width:46%;background:#22c55e"></div></div><div class="model-cost" style="color:#22c55e">$2.30</div><div class="model-pct" style="color:#22c55e">✓</div></div>
+            <div class="model-row"><div class="model-name" style="color:var(--muted);font-size:12px">February</div><div class="progress-bg"><div class="progress-fill" style="width:58%;background:#22c55e"></div></div><div class="model-cost" style="color:#22c55e">$2.90</div><div class="model-pct" style="color:#22c55e">✓</div></div>
+            <div class="model-row"><div class="model-name" style="color:var(--muted);font-size:12px">March (so far)</div><div class="progress-bg"><div class="progress-fill" style="width:68%;background:#6c63ff"></div></div><div class="model-cost" style="color:#6c63ff">$3.42</div><div class="model-pct" style="color:#6c63ff">→</div></div>
+            <div class="model-row"><div class="model-name" style="color:var(--muted);font-size:12px">April (projected)</div><div class="progress-bg"><div class="progress-fill" style="width:82%;background:#f59e0b"></div></div><div class="model-cost" style="color:#f59e0b">$4.10</div><div class="model-pct" style="color:#f59e0b">~</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAGE: CASH FORECAST -->
+    <div class="page" id="page-cash-forecast">
+
+      <!-- Top controls: starting cash + scenario toggle -->
+      <div class="cf-top-bar">
+        <label for="cf-starting-cash">Starting Cash Balance</label>
+        <input type="text" id="cf-starting-cash" class="cf-cash-input" value="$50,000" />
+        <div class="cf-scenario-btns">
+          <button class="cf-scenario-btn active" id="btn-base" onclick="setScenario('base',this)">Base Case</button>
+          <button class="cf-scenario-btn bull" id="btn-bull" onclick="setScenario('bull',this)">Bull Case (+30%)</button>
+          <button class="cf-scenario-btn bear" id="btn-bear" onclick="setScenario('bear',this)">Bear Case (−30%)</button>
+        </div>
+      </div>
+
+      <!-- Runway summary bar -->
+      <div class="runway-bar">
+        <div class="runway-card" style="border-top:2px solid var(--accent2)">
+          <div class="rc-label">Current Cash</div>
+          <div class="rc-val" id="rc-cash">$50,000</div>
+          <div class="rc-sub">Starting balance today</div>
+        </div>
+        <div class="runway-card" style="border-top:2px solid var(--accent3)">
+          <div class="rc-label">Weekly Burn Rate</div>
+          <div class="rc-val" id="rc-burn">$9,650</div>
+          <div class="rc-sub">Avg weekly outflows</div>
+        </div>
+        <div class="runway-card" id="rc-runway-card" style="border-top:2px solid var(--warning)">
+          <div class="rc-label">Weeks of Runway</div>
+          <div class="rc-val" id="rc-runway">—</div>
+          <div class="rc-sub" id="rc-runway-sub">Calculating…</div>
+        </div>
+        <div class="runway-card" style="border-top:2px solid var(--accent4)">
+          <div class="rc-label">Monthly Burn Rate</div>
+          <div class="rc-val" id="rc-monthly">$41,814</div>
+          <div class="rc-sub">Avg weekly burn × 4.33</div>
+        </div>
+      </div>
+
+      <!-- Cash balance chart -->
+      <div class="cf-chart-card">
+        <div class="chart-title">Cash Balance — 13-Week Forecast</div>
+        <div class="chart-sub">Ending balance per week · red dotted line = $10K danger zone</div>
+        <div class="chart-wrap"><canvas id="chart-cash-balance" height="160"></canvas></div>
+      </div>
+
+      <!-- 13-week table -->
+      <div class="cf-forecast-wrap">
+        <table class="cf-table" id="cf-table">
+          <thead>
+            <tr id="cf-thead-row">
+              <th>Row</th>
+              <!-- week headers injected by JS -->
+            </tr>
+          </thead>
+          <tbody id="cf-tbody">
+            <!-- rows injected by JS -->
+          </tbody>
+        </table>
+      </div>
+
+    </div><!-- end cash-forecast page -->
+
+    <!-- PAGE: TRANSACTIONS -->
+    <div class="page" id="page-transactions">
+      <div class="table-card">
+        <div class="table-header"><div class="chart-title">All Transactions — March 2026</div></div>
+        <table>
+          <thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Model</th><th>Tokens In</th><th>Tokens Out</th><th>Amount</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>Mar 30</td><td>Synthesis run #142</td><td><span class="pill purple">API</span></td><td>Sonnet 4.6</td><td>4,200</td><td>890</td><td>$0.026</td><td><span class="pill green">Settled</span></td></tr>
+            <tr><td>Mar 30</td><td>Orchestration #142</td><td><span class="pill teal">API</span></td><td>Haiku 4.5</td><td>1,100</td><td>240</td><td>$0.002</td><td><span class="pill green">Settled</span></td></tr>
+            <tr><td>Mar 29</td><td>Ollama workers ×8</td><td><span class="pill green">Local</span></td><td>deepseek/mistral/llama</td><td>—</td><td>—</td><td>$0.000</td><td><span class="pill green">Free</span></td></tr>
+            <tr><td>Mar 29</td><td>Synthesis run #141</td><td><span class="pill purple">API</span></td><td>Sonnet 4.6</td><td>3,800</td><td>760</td><td>$0.023</td><td><span class="pill green">Settled</span></td></tr>
+            <tr><td>Mar 29</td><td>Haiku fallback #139</td><td><span class="pill teal">API</span></td><td>Haiku 4.5</td><td>950</td><td>180</td><td>$0.002</td><td><span class="pill green">Settled</span></td></tr>
+            <tr><td>Mar 28</td><td>Batch job #22</td><td><span class="pill orange">Batch</span></td><td>Batch API</td><td>28,000</td><td>5,600</td><td>$0.126</td><td><span class="pill green">Settled</span></td></tr>
+            <tr><td>Mar 28</td><td>Orchestration #137</td><td><span class="pill teal">API</span></td><td>Haiku 4.5</td><td>1,400</td><td>310</td><td>$0.003</td><td><span class="pill green">Settled</span></td></tr>
+            <tr><td>Mar 27</td><td>Synthesis run #136</td><td><span class="pill purple">API</span></td><td>Sonnet 4.6</td><td>5,100</td><td>1,020</td><td>$0.031</td><td><span class="pill green">Settled</span></td></tr>
+            <tr><td>Mar 26</td><td>Ollama workers ×6</td><td><span class="pill green">Local</span></td><td>gemma2/phi3.5/llama3.2</td><td>—</td><td>—</td><td>$0.000</td><td><span class="pill green">Free</span></td></tr>
+            <tr><td>Mar 25</td><td>Batch job #21</td><td><span class="pill orange">Batch</span></td><td>Batch API</td><td>22,000</td><td>4,400</td><td>$0.099</td><td><span class="pill green">Settled</span></td></tr>
+            <tr><td>Mar 24</td><td>Synthesis run #129</td><td><span class="pill purple">API</span></td><td>Sonnet 4.6</td><td>4,600</td><td>920</td><td>$0.028</td><td><span class="pill green">Settled</span></td></tr>
+            <tr><td>Mar 23</td><td>Ollama workers ×12</td><td><span class="pill green">Local</span></td><td>deepseek/mistral/llama</td><td>—</td><td>—</td><td>$0.000</td><td><span class="pill green">Free</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- PAGE: PROJECTIONS -->
+    <div class="page" id="page-projections">
+      <div class="alert warning">
+        <span class="alert-icon">⚠️</span>
+        <div class="alert-text"><b>Tier 2 ETA:</b> At current $0.114/day burn rate, you'll hit $50 cumulative on <b>~April 17, 2026</b>. Increasing batch usage or run volume accelerates this significantly.</div>
+      </div>
+      <div class="metrics-grid" style="grid-template-columns:repeat(3,1fr)">
+        <div class="metric-card orange"><span class="metric-icon">📅</span><div class="metric-label">Tier 2 ETA</div><div class="metric-value sm">Apr 17</div><div class="metric-sub">At current burn rate</div></div>
+        <div class="metric-card purple"><span class="metric-icon">💸</span><div class="metric-label">Spend to Unlock</div><div class="metric-value sm">$40.00</div><div class="metric-sub">Remaining to Tier 2</div></div>
+        <div class="metric-card teal"><span class="metric-icon">⚡</span><div class="metric-label">Tier 2 Benefit</div><div class="metric-value sm">10× limits</div><div class="metric-sub">80K output TPM unlocked</div></div>
+      </div>
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-title">Cumulative Spend Projection</div>
+          <div class="chart-sub">Actual + projected path to $50 Tier 2 threshold</div>
+          <div class="chart-wrap"><canvas id="chart-projection" height="220"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Scenarios to Tier 2</div>
+          <div class="chart-sub">How fast you unlock 10× rate limits</div>
+          <div style="margin-top:12px;display:flex;flex-direction:column;gap:10px">
+            <div style="padding:12px 14px;background:var(--surface2);border-radius:8px;border-left:3px solid #6c63ff">
+              <div style="font-size:12px;font-weight:600;margin-bottom:4px">Current pace ($0.114/day)</div>
+              <div style="font-size:22px;font-weight:700;color:#6c63ff">Apr 17</div>
+              <div style="font-size:11px;color:var(--muted)">18 days from today</div>
+            </div>
+            <div style="padding:12px 14px;background:var(--surface2);border-radius:8px;border-left:3px solid #00d4aa">
+              <div style="font-size:12px;font-weight:600;margin-bottom:4px">2× batch usage ($0.22/day)</div>
+              <div style="font-size:22px;font-weight:700;color:#00d4aa">Apr 7</div>
+              <div style="font-size:11px;color:var(--muted)">8 days from today</div>
+            </div>
+            <div style="padding:12px 14px;background:var(--surface2);border-radius:8px;border-left:3px solid #f59e0b">
+              <div style="font-size:12px;font-weight:600;margin-bottom:4px">Manual top-up ($40 deposit)</div>
+              <div style="font-size:22px;font-weight:700;color:#f59e0b">Today</div>
+              <div style="font-size:11px;color:var(--muted)">Instant via Anthropic console</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAGE: RATE LIMITS -->
+    <div class="page" id="page-rate-limits">
+      <div class="two-col">
+        <div class="chart-card">
+          <div class="chart-title">Tier 1 — Current Limits</div>
+          <div class="chart-sub" style="margin-bottom:16px">Anthropic Individual org · Mar 30 2026</div>
+          <div class="gauge-row"><div class="gauge-label">Output TPM</div><div class="progress-bg"><div class="progress-fill" style="width:62%;background:#6c63ff"></div></div><div class="gauge-val">4.9K / 8K</div></div>
+          <div class="gauge-row"><div class="gauge-label">Input TPM</div><div class="progress-bg"><div class="progress-fill" style="width:38%;background:#00d4aa"></div></div><div class="gauge-val">11.4K / 30K</div></div>
+          <div class="gauge-row"><div class="gauge-label">Requests/min</div><div class="progress-bg"><div class="progress-fill" style="width:12%;background:#f59e0b"></div></div><div class="gauge-val">6 / 50</div></div>
+          <div class="gauge-row"><div class="gauge-label">Max Workers</div><div class="progress-bg"><div class="progress-fill" style="width:40%;background:#22c55e"></div></div><div class="gauge-val">2 / 5</div></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Tier 2 — After $50 Cumulative Spend</div>
+          <div class="chart-sub" style="margin-bottom:16px">What unlocks when you hit Tier 2</div>
+          <div class="gauge-row"><div class="gauge-label">Output TPM</div><div class="progress-bg"><div class="progress-fill" style="width:100%;background:#6c63ff"></div></div><div class="gauge-val" style="color:#6c63ff">80K ↑10×</div></div>
+          <div class="gauge-row"><div class="gauge-label">Input TPM</div><div class="progress-bg"><div class="progress-fill" style="width:100%;background:#00d4aa"></div></div><div class="gauge-val" style="color:#00d4aa">300K ↑10×</div></div>
+          <div class="gauge-row"><div class="gauge-label">Requests/min</div><div class="progress-bg"><div class="progress-fill" style="width:100%;background:#f59e0b"></div></div><div class="gauge-val" style="color:#f59e0b">1,000 ↑20×</div></div>
+          <div class="gauge-row"><div class="gauge-label">Max Workers</div><div class="progress-bg"><div class="progress-fill" style="width:100%;background:#22c55e"></div></div><div class="gauge-val" style="color:#22c55e">20 ↑10×</div></div>
+          <div style="margin-top:14px;padding:10px 12px;background:rgba(0,212,170,.08);border-radius:8px;border:1px solid rgba(0,212,170,.2)">
+            <div style="font-size:12px;color:#00d4aa;font-weight:600">Action: raise max_workers in orchestrator.py</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:3px">Currently capped at 2 to stay safe — raise to 10–20 after Tier 2 unlocks</div>
+          </div>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Output Token Usage (Daily Peak)</div>
+        <div class="chart-sub">vs 8K TPM Tier 1 ceiling — watch for throttling</div>
+        <div class="chart-wrap"><canvas id="chart-ratelimit" height="180"></canvas></div>
+      </div>
+    </div>
+
+    <!-- PAGE: EFFICIENCY -->
+    <div class="page" id="page-efficiency">
+      <div class="metrics-grid" style="grid-template-columns:repeat(4,1fr)">
+        <div class="metric-card green"><span class="metric-icon">💵</span><div class="metric-label">Blended Cost/1K tokens</div><div class="metric-value sm">$0.0034</div><div class="metric-sub">Claude + Ollama combined</div></div>
+        <div class="metric-card teal"><span class="metric-icon">📦</span><div class="metric-label">Batch Savings (Mar)</div><div class="metric-value sm">$0.54</div><div class="metric-sub">50% off on batch jobs</div></div>
+        <div class="metric-card purple"><span class="metric-icon">🧠</span><div class="metric-label">Cache Hit Rate</div><div class="metric-value sm">34%</div><div class="metric-sub">Prompt caching in BaseAgent</div></div>
+        <div class="metric-card orange"><span class="metric-icon">🔄</span><div class="metric-label">Haiku Fallback Rate</div><div class="metric-value sm">8%</div><div class="metric-sub">Ollama failures → Haiku</div></div>
+      </div>
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-title">Cost Efficiency Over Time</div>
+          <div class="chart-sub">$ per run — trending down as routing improves</div>
+          <div class="chart-wrap"><canvas id="chart-efficiency" height="220"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Optimization Opportunities</div>
+          <div class="chart-sub">Ranked by potential monthly savings</div>
+          <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--surface2);border-radius:8px">
+              <span style="font-size:18px">1️⃣</span>
+              <div style="flex:1"><div style="font-size:12px;font-weight:600">More batch jobs</div><div style="font-size:11px;color:var(--muted)">50% savings + accelerates Tier 2 unlock</div></div>
+              <span class="pill green">−$0.80/mo</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--surface2);border-radius:8px">
+              <span style="font-size:18px">2️⃣</span>
+              <div style="flex:1"><div style="font-size:12px;font-weight:600">Higher cache hit rate</div><div style="font-size:11px;color:var(--muted)">Tune prompt caching in base.py (currently 34%)</div></div>
+              <span class="pill teal">−$0.40/mo</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--surface2);border-radius:8px">
+              <span style="font-size:18px">3️⃣</span>
+              <div style="flex:1"><div style="font-size:12px;font-weight:600">Shorter synthesis prompts</div><div style="font-size:11px;color:var(--muted)">Sonnet is 62% of cost — trim context window</div></div>
+              <span class="pill orange">−$0.30/mo</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--surface2);border-radius:8px">
+              <span style="font-size:18px">4️⃣</span>
+              <div style="flex:1"><div style="font-size:12px;font-weight:600">Reduce Haiku fallbacks</div><div style="font-size:11px;color:var(--muted)">Improve Ollama stability (8% fallback rate)</div></div>
+              <span class="pill purple">−$0.15/mo</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const C = { accent:'#6c63ff', teal:'#00d4aa', red:'#ff6b6b', orange:'#ffa94d', green:'#22c55e', yellow:'#f59e0b', blue:'#3b82f6', pink:'#ec4899', muted:'#6b7280' };
+Chart.defaults.color = C.muted;
+Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
+Chart.defaults.font.size = 11;
+const G = () => 'rgba(31,35,48,.8)';
+const baseOpts = () => ({
+  responsive:true, maintainAspectRatio:true,
+  plugins:{ legend:{ display:true, position:'bottom', labels:{ boxWidth:10, padding:14 } }, tooltip:{ mode:'index', intersect:false } },
+  scales:{ x:{ grid:{ color:G() }, ticks:{ maxRotation:0 } }, y:{ grid:{ color:G() }, beginAtZero:true } },
+  interaction:{ mode:'index', intersect:false }
+});
+
+const days30 = Array.from({length:30},(_,i)=>{const d=new Date(2026,2,1+i);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'})});
+const days7 = days30.slice(-7);
+
+// Daily Spend
+new Chart(document.getElementById('chart-daily-spend'),{
+  type:'line',
+  data:{
+    labels:days30,
+    datasets:[
+      {label:'Sonnet (Aria)',data:[0.018,0.022,0.019,0.025,0.020,0.017,0.023,0.021,0.018,0.024,0.020,0.022,0.019,0.025,0.021,0.018,0.023,0.022,0.019,0.026,0.021,0.024,0.022,0.019,0.025,0.023,0.020,0.026,0.023,0.026],borderColor:C.accent,backgroundColor:'rgba(108,99,255,.12)',fill:true,tension:.4,borderWidth:2,pointRadius:2},
+      {label:'Haiku (Chloe)',data:[0.002,0.002,0.003,0.002,0.002,0.003,0.002,0.002,0.003,0.002,0.002,0.003,0.002,0.002,0.003,0.002,0.002,0.003,0.002,0.002,0.003,0.002,0.002,0.003,0.002,0.002,0.003,0.003,0.002,0.002],borderColor:C.teal,backgroundColor:'rgba(0,212,170,.08)',fill:true,tension:.4,borderWidth:2,pointRadius:2}
+    ]
+  },
+  options:{...baseOpts(),scales:{x:{grid:{color:G()},ticks:{maxRotation:0,maxTicksLimit:8}},y:{grid:{color:G()},beginAtZero:true,ticks:{callback:v=>'$'+v.toFixed(3)}}}}
+});
+
+// Model Pie
+new Chart(document.getElementById('chart-model-pie'),{
+  type:'doughnut',
+  data:{
+    labels:['Sonnet 62%','Haiku Orch 22%','Haiku Fallback 8%','Batch 8%'],
+    datasets:[{data:[2.14,0.75,0.28,0.25],backgroundColor:[C.accent,C.teal,C.blue,C.orange],borderColor:'#111318',borderWidth:3}]
+  },
+  options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{position:'bottom',labels:{boxWidth:10,padding:12}}},cutout:'65%'}
+});
+
+// Cumulative
+const dailyCost=[0.020,0.024,0.022,0.027,0.022,0.020,0.025,0.023,0.021,0.026,0.022,0.025,0.021,0.027,0.023,0.020,0.025,0.025,0.021,0.028,0.023,0.026,0.024,0.022,0.027,0.025,0.023,0.029,0.025,0.028];
+const priorSpend=6.58;
+let acc=priorSpend;
+const cumulFull=dailyCost.map(d=>{acc+=d;return+acc.toFixed(3)});
+new Chart(document.getElementById('chart-cumulative'),{
+  type:'line',
+  data:{labels:days30,datasets:[
+    {label:'Cumulative',data:cumulFull,borderColor:C.accent,backgroundColor:'rgba(108,99,255,.15)',fill:true,tension:.4,borderWidth:2,pointRadius:0},
+    {label:'Tier 2 ($50)',data:Array(30).fill(50),borderColor:C.teal,borderDash:[6,3],borderWidth:1.5,pointRadius:0,fill:false}
+  ]},
+  options:{...baseOpts(),scales:{x:{grid:{color:G()},ticks:{maxRotation:0,maxTicksLimit:6}},y:{grid:{color:G()},beginAtZero:false,ticks:{callback:v=>'$'+v}}}}
+});
+
+// Runs per Day
+new Chart(document.getElementById('chart-runs'),{
+  type:'bar',
+  data:{labels:days30,datasets:[
+    {label:'Claude',data:[1,1,2,1,1,1,2,1,1,2,1,1,2,1,1,1,2,1,1,2,1,1,2,1,1,1,2,1,1,2],backgroundColor:C.accent,borderRadius:3},
+    {label:'Ollama',data:[3,4,3,5,3,3,4,3,4,5,3,4,4,3,4,3,4,4,3,5,4,4,5,3,4,4,5,3,4,5],backgroundColor:C.green,borderRadius:3}
+  ]},
+  options:{...baseOpts(),scales:{x:{stacked:true,grid:{color:G()},ticks:{maxTicksLimit:8,maxRotation:0}},y:{stacked:true,grid:{color:G()},beginAtZero:true}}}
+});
+
+// Tokens
+new Chart(document.getElementById('chart-tokens'),{
+  type:'bar',
+  data:{labels:days7,datasets:[
+    {label:'Input (K)',data:[4.2,3.8,6.1,4.5,3.9,4.8,5.3],backgroundColor:C.teal,borderRadius:4},
+    {label:'Output (K)',data:[0.89,0.76,1.56,0.92,0.81,0.98,1.13],backgroundColor:C.orange,borderRadius:4}
+  ]},
+  options:baseOpts()
+});
+
+// Cost Stack
+new Chart(document.getElementById('chart-cost-stack'),{
+  type:'bar',
+  data:{labels:days30,datasets:[
+    {label:'Sonnet',data:[0.018,0.022,0.019,0.025,0.020,0.017,0.023,0.021,0.018,0.024,0.020,0.022,0.019,0.025,0.021,0.018,0.023,0.022,0.019,0.026,0.021,0.024,0.022,0.019,0.025,0.023,0.020,0.026,0.023,0.026],backgroundColor:C.accent,borderRadius:2},
+    {label:'Haiku',data:[0.002,0.002,0.003,0.002,0.002,0.003,0.002,0.002,0.003,0.002,0.002,0.003,0.002,0.002,0.003,0.002,0.002,0.003,0.002,0.002,0.003,0.002,0.002,0.003,0.002,0.002,0.003,0.003,0.002,0.002],backgroundColor:C.teal,borderRadius:2},
+    {label:'Batch',data:[0,0,0,0,0,0,0.126,0,0,0,0,0,0,0.099,0,0,0,0,0,0,0.112,0,0,0,0,0,0,0.098,0,0],backgroundColor:C.orange,borderRadius:2}
+  ]},
+  options:{...baseOpts(),scales:{x:{stacked:true,grid:{color:G()},ticks:{maxTicksLimit:8,maxRotation:0}},y:{stacked:true,grid:{color:G()},beginAtZero:true,ticks:{callback:v=>'$'+v.toFixed(3)}}}}
+});
+
+// Routing
+new Chart(document.getElementById('chart-routing'),{
+  type:'bar',
+  data:{labels:days7,datasets:[
+    {label:'Claude (billed)',data:[2,1,3,2,1,2,3],backgroundColor:C.accent,borderRadius:4},
+    {label:'Ollama (free)',data:[4,4,6,4,3,4,6],backgroundColor:C.green,borderRadius:4}
+  ]},
+  options:{...baseOpts(),scales:{x:{stacked:true,grid:{color:G()}},y:{stacked:true,grid:{color:G()},beginAtZero:true}}}
+});
+
+// Budget Burn
+acc=0;
+const marchOnly=dailyCost.map(d=>{acc+=d;return+acc.toFixed(3)});
+new Chart(document.getElementById('chart-budget-burn'),{
+  type:'line',
+  data:{labels:days30,datasets:[
+    {label:'Actual Spend',data:marchOnly,borderColor:C.accent,backgroundColor:'rgba(108,99,255,.1)',fill:true,tension:.4,borderWidth:2,pointRadius:0},
+    {label:'Budget ($5)',data:Array(30).fill(5),borderColor:C.red,borderDash:[5,3],borderWidth:1.5,pointRadius:0,fill:false}
+  ]},
+  options:{...baseOpts(),scales:{x:{grid:{color:G()},ticks:{maxTicksLimit:8,maxRotation:0}},y:{grid:{color:G()},beginAtZero:true,ticks:{callback:v=>'$'+v.toFixed(2)}}}}
+});
+
+// Projection
+const projDays=49;
+const projLabels=[],projActual=[],projForward=[];
+let accP=priorSpend;
+for(let i=0;i<projDays;i++){
+  const d=new Date(2026,2,1+i);
+  projLabels.push(d.toLocaleDateString('en-US',{month:'short',day:'numeric'}));
+  if(i<30){accP+=dailyCost[i]||0.020;projActual.push(+accP.toFixed(2));projForward.push(null);}
+  else{projActual.push(null);accP+=0.114;projForward.push(+accP.toFixed(2));}
+}
+new Chart(document.getElementById('chart-projection'),{
+  type:'line',
+  data:{labels:projLabels,datasets:[
+    {label:'Actual',data:projActual,borderColor:C.accent,fill:false,tension:.3,borderWidth:2,pointRadius:0},
+    {label:'Projected',data:projForward,borderColor:C.orange,borderDash:[6,3],fill:false,tension:.3,borderWidth:2,pointRadius:0},
+    {label:'Tier 2 ($50)',data:Array(projDays).fill(50),borderColor:C.teal,borderDash:[4,3],borderWidth:1.5,pointRadius:0,fill:false}
+  ]},
+  options:{...baseOpts(),scales:{x:{grid:{color:G()},ticks:{maxTicksLimit:10,maxRotation:0}},y:{grid:{color:G()},beginAtZero:false,ticks:{callback:v=>'$'+v}}}}
+});
+
+// Rate Limit
+new Chart(document.getElementById('chart-ratelimit'),{
+  type:'line',
+  data:{labels:days7,datasets:[
+    {label:'Peak Output TPM',data:[4200,3800,6100,5200,4600,5500,4900],borderColor:C.accent,backgroundColor:'rgba(108,99,255,.1)',fill:true,tension:.4,borderWidth:2,pointRadius:3},
+    {label:'Tier 1 Limit (8K)',data:Array(7).fill(8000),borderColor:C.red,borderDash:[5,3],borderWidth:1.5,pointRadius:0,fill:false}
+  ]},
+  options:{...baseOpts(),scales:{x:{grid:{color:G()}},y:{grid:{color:G()},beginAtZero:false,ticks:{callback:v=>v.toLocaleString()}}}}
+});
+
+// Efficiency
+new Chart(document.getElementById('chart-efficiency'),{
+  type:'line',
+  data:{labels:days30,datasets:[
+    {label:'$/run',data:[0.031,0.029,0.028,0.030,0.028,0.027,0.026,0.027,0.025,0.026,0.025,0.026,0.025,0.026,0.024,0.025,0.025,0.026,0.024,0.025,0.024,0.025,0.024,0.024,0.025,0.024,0.023,0.025,0.024,0.024],borderColor:C.teal,backgroundColor:'rgba(0,212,170,.1)',fill:true,tension:.4,borderWidth:2,pointRadius:2}
+  ]},
+  options:{...baseOpts(),scales:{x:{grid:{color:G()},ticks:{maxTicksLimit:8,maxRotation:0}},y:{grid:{color:G()},beginAtZero:false,ticks:{callback:v=>'$'+v.toFixed(3)}}}}
+});
+
+// ─────────────────────────────────────────────
+// CASH FORECAST
+// ─────────────────────────────────────────────
+
+const WEEKS = 13;
+
+// Default base data (all stored as plain numbers)
+const CF_DEFAULTS = {
+  // Inflows
+  mrr:         [2500,2500,2500,2500,3500,3500,3500,3500,5000,5000,5000,5000,5000],
+  newContracts:[0,0,0,0,0,0,0,0,0,0,0,0,0],
+  oneTime:     [0,0,0,0,0,0,0,0,0,0,0,0,0],
+  otherIncome: [0,0,0,0,0,0,0,0,0,0,0,0,0],
+  // Outflows
+  payroll:     [8000,8000,8000,8000,8000,8000,8000,8000,8000,8000,8000,8000,8000],
+  apiCosts:    [500,500,500,500,500,500,500,500,500,500,500,500,500],
+  infra:       [300,300,300,300,300,300,300,300,300,300,300,300,300],
+  software:    [200,200,200,200,200,200,200,200,200,200,200,200,200],
+  legal:       [150,150,150,150,150,150,150,150,150,150,150,150,150],
+  marketing:   [400,400,400,400,400,400,400,400,400,400,400,400,400],
+  gna:         [250,250,250,250,250,250,250,250,250,250,250,250,250],
+};
+
+// Row definitions: key, label, group (inflow/outflow/calc), editable
+const ROWS = [
+  // Section header
+  { type:'section', label:'CASH INFLOWS' },
+  { key:'mrr',          label:'Subscriptions (MRR)',    group:'inflow', editable:true },
+  { key:'newContracts', label:'New Contracts',           group:'inflow', editable:true },
+  { key:'oneTime',      label:'One-Time Payments',       group:'inflow', editable:true },
+  { key:'otherIncome',  label:'Other Income',            group:'inflow', editable:true },
+  { key:'totalInflows', label:'Total Inflows',           group:'inflow', editable:false, isTotal:true },
+  // Section header
+  { type:'section', label:'CASH OUTFLOWS' },
+  { key:'payroll',      label:'Payroll & Benefits',      group:'outflow', editable:true },
+  { key:'apiCosts',     label:'API Costs (Anthropic)',   group:'outflow', editable:true },
+  { key:'infra',        label:'Infrastructure (Vercel/Supabase)', group:'outflow', editable:true },
+  { key:'software',     label:'Software & Tools',        group:'outflow', editable:true },
+  { key:'legal',        label:'Legal & Compliance',      group:'outflow', editable:true },
+  { key:'marketing',    label:'Marketing',               group:'outflow', editable:true },
+  { key:'gna',          label:'G&A / Other',             group:'outflow', editable:true },
+  { key:'totalOutflows',label:'Total Outflows',          group:'outflow', editable:false, isTotal:true },
+  // Calculated rows
+  { key:'netCashFlow',  label:'NET CASH FLOW',           group:'net',    editable:false },
+  { key:'beginBalance', label:'BEGINNING BALANCE',       group:'balance',editable:false },
+  { key:'endBalance',   label:'ENDING BALANCE',          group:'balance',editable:false },
+  { key:'runway',       label:'RUNWAY (weeks at burn)',  group:'runway', editable:false },
+];
+
+let cfScenario = 'base';
+let cfData = JSON.parse(JSON.stringify(CF_DEFAULTS));
+let cashChartInstance = null;
+
+function parseCash(str) {
+  return parseFloat(String(str).replace(/[$,\s]/g,'')) || 0;
+}
+function fmtDollar(n) {
+  const abs = Math.abs(n);
+  const s = abs.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
+  return (n < 0 ? '-$' : '$') + s;
+}
+
+function getScenarioFactor() {
+  return cfScenario === 'bull' ? 1.3 : cfScenario === 'bear' ? 0.7 : 1.0;
+}
+
+function calcForecast() {
+  const factor = getScenarioFactor();
+  const startingCash = parseCash(document.getElementById('cf-starting-cash').value);
+  const result = {
+    mrr: [], newContracts:[], oneTime:[], otherIncome:[],
+    totalInflows:[], payroll:[], apiCosts:[], infra:[],
+    software:[], legal:[], marketing:[], gna:[],
+    totalOutflows:[], netCashFlow:[], beginBalance:[], endBalance:[], runway:[]
+  };
+
+  // Revenue rows get multiplied by scenario factor
+  const revenueKeys = ['mrr','newContracts','oneTime','otherIncome'];
+  const outflowKeys = ['payroll','apiCosts','infra','software','legal','marketing','gna'];
+
+  let runningBal = startingCash;
+
+  for (let w = 0; w < WEEKS; w++) {
+    // Inflows (scenario adjusted)
+    for (const k of revenueKeys) {
+      result[k][w] = cfData[k][w] * factor;
+    }
+    result.totalInflows[w] = revenueKeys.reduce((s,k) => s + result[k][w], 0);
+
+    // Outflows (not scenario adjusted — costs stay fixed)
+    for (const k of outflowKeys) {
+      result[k][w] = cfData[k][w];
+    }
+    result.totalOutflows[w] = outflowKeys.reduce((s,k) => s + result[k][w], 0);
+
+    // Net, balances
+    result.netCashFlow[w] = result.totalInflows[w] - result.totalOutflows[w];
+    result.beginBalance[w] = runningBal;
+    result.endBalance[w] = runningBal + result.netCashFlow[w];
+    runningBal = result.endBalance[w];
+
+    // Runway (weeks at current burn from this week's ending balance)
+    const burn = result.totalOutflows[w];
+    result.runway[w] = burn > 0 ? result.endBalance[w] / burn : Infinity;
+  }
+
+  return result;
+}
+
+function buildTable() {
+  // Build week headers
+  const thead = document.getElementById('cf-thead-row');
+  thead.innerHTML = '<th>Row</th>';
+  for (let w = 1; w <= WEEKS; w++) {
+    const th = document.createElement('th');
+    th.textContent = 'Wk ' + w;
+    thead.appendChild(th);
+  }
+
+  // Build body rows
+  const tbody = document.getElementById('cf-tbody');
+  tbody.innerHTML = '';
+
+  for (const row of ROWS) {
+    const tr = document.createElement('tr');
+
+    if (row.type === 'section') {
+      tr.className = 'row-section-header';
+      const td = document.createElement('td');
+      td.colSpan = WEEKS + 1;
+      td.textContent = row.label;
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+      continue;
+    }
+
+    // Apply row class
+    if (row.isTotal) tr.classList.add('row-total');
+    if (row.key === 'netCashFlow') tr.classList.add('row-net');
+    if (row.key === 'beginBalance' || row.key === 'endBalance') tr.classList.add('row-balance');
+    if (row.key === 'runway') tr.classList.add('row-runway');
+    tr.id = 'cf-row-' + row.key;
+
+    // Label cell
+    const labelTd = document.createElement('td');
+    labelTd.textContent = row.label;
+    tr.appendChild(labelTd);
+
+    // Week cells
+    for (let w = 0; w < WEEKS; w++) {
+      const td = document.createElement('td');
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'cf-cell';
+      input.dataset.key = row.key;
+      input.dataset.week = w;
+
+      if (!row.editable) {
+        input.readOnly = true;
+        input.setAttribute('readonly', '');
+      } else {
+        input.addEventListener('change', function() {
+          const k = this.dataset.key;
+          const wi = parseInt(this.dataset.week);
+          cfData[k][wi] = parseCash(this.value);
+          recalc();
+        });
+        input.addEventListener('focus', function() {
+          this.select();
+        });
+      }
+
+      td.appendChild(input);
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+}
+
+function recalc() {
+  const fc = calcForecast();
+
+  // Update all input values
+  for (const row of ROWS) {
+    if (row.type === 'section') continue;
+    const tr = document.getElementById('cf-row-' + row.key);
+    if (!tr) continue;
+
+    // Determine if this is a balance-related row that needs color coding
+    const isEndBal = row.key === 'endBalance';
+    const isNet    = row.key === 'netCashFlow';
+
+    // Clear balance row classes first
+    tr.classList.remove('bal-danger','bal-warning');
+
+    for (let w = 0; w < WEEKS; w++) {
+      const input = tr.querySelectorAll('input')[w];
+      if (!input) continue;
+      const val = fc[row.key][w];
+
+      if (row.key === 'runway') {
+        input.value = isFinite(val) ? val.toFixed(1) + ' wks' : '∞';
+      } else {
+        input.value = fmtDollar(val);
+      }
+
+      // Color net cash flow cells
+      if (isNet) {
+        input.classList.remove('net-pos','net-neg');
+        input.classList.add(val >= 0 ? 'net-pos' : 'net-neg');
+      }
+    }
+
+    // Row-level color for ending balance
+    if (isEndBal) {
+      // Find the minimum ending balance this week
+      // Color the whole row based on worst week shown
+      // Actually we need per-week row coloring — we add a class per row
+      // For simplicity: check week 0's end balance for the row class
+      // Instead, we'll do individual TD background coloring
+      for (let w = 0; w < WEEKS; w++) {
+        const input = tr.querySelectorAll('input')[w];
+        const td = input.parentElement;
+        const endBal = fc.endBalance[w];
+        td.style.background = '';
+        if (endBal < 10000) {
+          td.style.background = 'rgba(239,68,68,.12)';
+        } else if (endBal < 25000) {
+          td.style.background = 'rgba(245,158,11,.09)';
+        }
+      }
+
+      // Also color the beginBalance and runway rows matching endBalance
+      const beginTr = document.getElementById('cf-row-beginBalance');
+      const runwayTr = document.getElementById('cf-row-runway');
+      const netTr = document.getElementById('cf-row-netCashFlow');
+      [beginTr, runwayTr].forEach(rowEl => {
+        if (!rowEl) return;
+        for (let w = 0; w < WEEKS; w++) {
+          const inp = rowEl.querySelectorAll('input')[w];
+          if (!inp) return;
+          const td = inp.parentElement;
+          const endBal = fc.endBalance[w];
+          td.style.background = '';
+          if (endBal < 10000) td.style.background = 'rgba(239,68,68,.08)';
+          else if (endBal < 25000) td.style.background = 'rgba(245,158,11,.06)';
+        }
+      });
+    }
+  }
+
+  // Refill editable cells with current cfData (adjusted for scenario on revenue)
+  const factor = getScenarioFactor();
+  const revenueKeys = ['mrr','newContracts','oneTime','otherIncome'];
+  for (const row of ROWS) {
+    if (row.type === 'section' || !row.editable) continue;
+    const tr = document.getElementById('cf-row-' + row.key);
+    if (!tr) continue;
+    for (let w = 0; w < WEEKS; w++) {
+      const input = tr.querySelectorAll('input')[w];
+      if (!input) continue;
+      const raw = cfData[row.key][w];
+      const displayed = revenueKeys.includes(row.key) ? raw * factor : raw;
+      input.value = fmtDollar(displayed);
+    }
+  }
+
+  // Update summary bar
+  const startingCash = parseCash(document.getElementById('cf-starting-cash').value);
+  const avgBurn = fc.totalOutflows.reduce((s,v)=>s+v,0) / WEEKS;
+  const weeksRunway = avgBurn > 0 ? startingCash / avgBurn : Infinity;
+  const monthlyBurn = avgBurn * 4.333;
+
+  document.getElementById('rc-cash').textContent = fmtDollar(startingCash);
+  document.getElementById('rc-burn').textContent = fmtDollar(avgBurn);
+  document.getElementById('rc-monthly').textContent = fmtDollar(monthlyBurn);
+
+  const rwEl = document.getElementById('rc-runway');
+  const rwSub = document.getElementById('rc-runway-sub');
+  const rwCard = document.getElementById('rc-runway-card');
+  if (isFinite(weeksRunway)) {
+    rwEl.textContent = weeksRunway.toFixed(1) + ' wks';
+    if (weeksRunway >= 26) {
+      rwEl.style.color = '#22c55e';
+      rwCard.style.borderTopColor = '#22c55e';
+      rwSub.textContent = 'Healthy — 6+ months';
+    } else if (weeksRunway >= 13) {
+      rwEl.style.color = '#f59e0b';
+      rwCard.style.borderTopColor = '#f59e0b';
+      rwSub.textContent = 'Caution — 3–6 months';
+    } else {
+      rwEl.style.color = '#ef4444';
+      rwCard.style.borderTopColor = '#ef4444';
+      rwSub.textContent = 'Critical — under 3 months';
+    }
+  } else {
+    rwEl.textContent = '∞';
+    rwEl.style.color = '#22c55e';
+    rwCard.style.borderTopColor = '#22c55e';
+    rwSub.textContent = 'Cash positive — no burn';
+  }
+
+  // Update chart
+  updateCashChart(fc.endBalance);
+}
+
+function updateCashChart(endBalances) {
+  const labels = Array.from({length:WEEKS},(_,i)=>'Wk '+(i+1));
+  const dangerLine = Array(WEEKS).fill(10000);
+
+  if (cashChartInstance) {
+    cashChartInstance.data.datasets[0].data = endBalances;
+    cashChartInstance.data.datasets[1].data = dangerLine;
+    cashChartInstance.update();
+    return;
+  }
+
+  cashChartInstance = new Chart(document.getElementById('chart-cash-balance'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Ending Cash Balance',
+          data: endBalances,
+          borderColor: C.teal,
+          backgroundColor: 'rgba(0,212,170,.10)',
+          fill: true,
+          tension: .4,
+          borderWidth: 2.5,
+          pointRadius: 4,
+          pointBackgroundColor: endBalances.map(v =>
+            v < 10000 ? '#ef4444' : v < 25000 ? '#f59e0b' : '#00d4aa'
+          ),
+          pointBorderColor: '#111318',
+          pointBorderWidth: 2,
+        },
+        {
+          label: 'Danger Zone ($10K)',
+          data: dangerLine,
+          borderColor: '#ef4444',
+          borderDash: [6,4],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          fill: false,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: { display:true, position:'bottom', labels:{ boxWidth:10, padding:14 }},
+        tooltip: {
+          mode:'index', intersect:false,
+          callbacks: {
+            label: ctx => {
+              const v = ctx.raw;
+              return ctx.dataset.label + ': ' + fmtDollar(v);
+            }
+          }
+        }
+      },
+      scales: {
+        x: { grid:{ color:G() }, ticks:{ maxRotation:0 }},
+        y: {
+          grid:{ color:G() },
+          ticks:{ callback: v => '$'+v.toLocaleString() },
+          beginAtZero: false
+        }
+      },
+      interaction:{ mode:'index', intersect:false }
+    }
+  });
+}
+
+function setScenario(s, el) {
+  cfScenario = s;
+  document.querySelectorAll('.cf-scenario-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  recalc();
+}
+
+function initCashForecast() {
+  buildTable();
+
+  // Starting cash input reactive
+  document.getElementById('cf-starting-cash').addEventListener('change', function() {
+    recalc();
+  });
+  document.getElementById('cf-starting-cash').addEventListener('input', function() {
+    recalc();
+  });
+
+  recalc();
+}
+
+// Initialize on DOMContentLoaded
+document.addEventListener('DOMContentLoaded', () => {
+  initCashForecast();
+});
+
+// Navigation
+function navigate(page, el) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(i=>i.classList.remove('active'));
+  document.getElementById('page-'+page).classList.add('active');
+  el.classList.add('active');
+  document.getElementById('topbar-sub').textContent='· '+el.textContent.trim().replace(/\s+/g,' ');
+  document.getElementById('sidebar').classList.remove('open');
+
+  // Initialize cash forecast chart when first navigated to
+  if (page === 'cash-forecast' && !cashChartInstance) {
+    setTimeout(recalc, 50);
+  }
+}
+function setPeriod(p, el) {
+  document.querySelectorAll('.period-tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+}
+function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
+function refreshData() {
+  const btn=document.getElementById('refreshBtn');
+  btn.textContent='↻ Refreshing…';
+  setTimeout(()=>{btn.textContent='↻ Refresh';},1000);
+}
+// Animate tier bar on load
+setTimeout(()=>{ document.getElementById('tierBar').style.width='20%'; }, 400);
+</script>
+</body>
+</html>
