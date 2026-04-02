@@ -89,6 +89,8 @@ Decomposes goals into subtasks, routes them to the most efficient model, and syn
 | **Maya** | `Maya` (base.py) | The mother — base class all agents inherit | — |
 | **HR Dept** | specialist via `bus.py` | Reviews every run for HR compliance, fairness, privacy | Claude Haiku |
 | **Legal Dept** | specialist via `bus.py` | Reviews every run for legal compliance, liability, regulation | Claude Haiku |
+| **FP&A Analyst** | specialist via `bus.py` | Budget vs actuals, forecasting, unit economics, burn/runway, scenario planning | Claude Haiku |
+| **CFO** | specialist via `bus.py` | Cash strategy, fundraising, cap table, board reporting, M&A, financial controls | Claude Haiku |
 
 ## Architecture
 
@@ -176,7 +178,7 @@ Workers can consult specialists mid-task via `ask_specialist` tool. The bus spin
 Maya (Claude Haiku) specialist with a domain-specific system prompt. Results are cached to avoid
 duplicate calls.
 
-Available specialists: `security`, `architecture`, `database`, `devops`, `frontend`, `performance`, `hr`, `legal`
+Available specialists: `security`, `architecture`, `database`, `devops`, `frontend`, `performance`, `hr`, `legal`, `fpna`, `cfo`
 
 ## Memory (utils/memory.py)
 
