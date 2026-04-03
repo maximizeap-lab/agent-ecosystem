@@ -86,11 +86,13 @@ class Luna:
         from agents.base import _dispatch_tool, WORKER_TOOLS
 
         client = self._get_fallback_client()
+        # Copy messages to avoid mutating the caller's list during tool-use loops
+        messages_copy = list(messages)
         kwargs: "dict[str, Any]" = dict(
             model="claude-haiku-4-5-20251001",
             max_tokens=WORKER_MAX_TOKENS,
             system=[{"type": "text", "text": self.system_prompt, "cache_control": {"type": "ephemeral"}}],
-            messages=messages,
+            messages=messages_copy,
         )
         if tools:
             kwargs["tools"] = WORKER_TOOLS
@@ -103,8 +105,8 @@ class Luna:
                 if block.type == "tool_use":
                     result = _dispatch_tool(block.name, block.input)
                     tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
-            messages.append({"role": "assistant", "content": response.content})
-            messages.append({"role": "user", "content": tool_results})
-            response = client.messages.create(**kwargs | {"messages": messages})
+            messages_copy.append({"role": "assistant", "content": response.content})
+            messages_copy.append({"role": "user", "content": tool_results})
+            response = client.messages.create(**kwargs | {"messages": messages_copy})
 
         return "".join(block.text for block in response.content if hasattr(block, "text"))

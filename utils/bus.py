@@ -314,8 +314,9 @@ class AgentBus:
             if cache_key in self._cache:
                 return self._cache[cache_key]
 
-        # Check persistent SQLite cache
-        from utils.memory import get_specialist_cache, set_specialist_cache
+        # Check persistent SQLite cache (with 7-day expiry)
+        from utils.memory import get_specialist_cache, set_specialist_cache, cleanup_expired_specialist_cache
+        cleanup_expired_specialist_cache()
         cached = get_specialist_cache(cache_key)
         if cached:
             with _lock:

@@ -123,7 +123,7 @@ def record_model_success(task_pattern: str, model: str) -> None:
             """
             INSERT INTO model_performance (task_pattern, model, success_count)
             VALUES (?, ?, 1)
-            ON CONFLICT(task_pattern) DO UPDATE SET success_count = success_count + 1
+            ON CONFLICT(task_pattern) DO UPDATE SET success_count = success_count + 1, fail_count = 0
             """,
             (task_pattern, model),
         )
@@ -168,9 +168,20 @@ def get_specialist_cache(cache_key: str) -> "str | None":
     init_db()
     with _lock, _conn() as con:
         row = con.execute(
-            "SELECT answer FROM specialist_cache WHERE cache_key = ?", (cache_key,)
+            "SELECT answer FROM specialist_cache WHERE cache_key = ? AND created_at > datetime('now', '-7 days')",
+            (cache_key,),
         ).fetchone()
         return row["answer"] if row else None
+
+
+def cleanup_expired_specialist_cache() -> int:
+    """Delete specialist cache entries older than 7 days. Returns count deleted."""
+    init_db()
+    with _lock, _conn() as con:
+        cur = con.execute(
+            "DELETE FROM specialist_cache WHERE created_at <= datetime('now', '-7 days')"
+        )
+        return cur.rowcount
 
 
 def set_specialist_cache(cache_key: str, answer: str) -> None:

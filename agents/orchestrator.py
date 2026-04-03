@@ -232,8 +232,10 @@ class Chloe(Maya):
         _REVIEW_PROMPT = (
             "Review the following PLAN (not yet executed). Flag any compliance issues with the "
             "intended approach BEFORE the work begins. If the plan itself is fundamentally "
-            "problematic (illegal, discriminatory, a serious privacy violation), use 🚫 to block it. "
-            "For concerns that can proceed with caution, use ⚠️. For clean plans, use ✅.\n\n{summary}"
+            "problematic (illegal, discriminatory, a serious privacy violation), use 🚫 to block it "
+            "and include the line 'BLOCKED: true' in your response. "
+            "For concerns that can proceed with caution, use ⚠️. For clean plans, use ✅ "
+            "and include the line 'BLOCKED: false'.\n\n{summary}"
         )
 
         logger.orchestrator(f"Plan compliance routing → {', '.join(_COMPLIANCE_LABELS.get(k, k) for k in triggered)}")
@@ -257,7 +259,7 @@ class Chloe(Maya):
         for key in order:
             if key in results:
                 parts.append(f"**{_COMPLIANCE_LABELS[key]}:**\n{results[key]}")
-                if "🚫" in results[key]:
+                if "🚫" in results[key] or "BLOCKED: true" in results[key]:
                     is_blocked = True
 
         return "\n\n---\n\n".join(parts), is_blocked
